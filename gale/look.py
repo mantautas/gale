@@ -26,9 +26,31 @@ GEO_MODES = [
 ]
 GEO_MODE_INDEX = {name: i for i, name in enumerate(GEO_MODES)}
 
+OVERLAY_MODES = [
+    "none",
+    "grid",
+    "radar",
+    "contours",
+    "voronoi",
+    "edges",
+]
+OVERLAY_MODE_INDEX = {name: i for i, name in enumerate(OVERLAY_MODES)}
+
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
+# `open` on the first row of a group is the default collapsed state.
 SLIDERS = [
-    {"group": "Geo", "path": "geo.mode", "label": "Mode", "type": "enum", "options": GEO_MODES},
+    {"group": "Overlay", "open": True, "path": "overlay.mode", "label": "Mode", "type": "enum", "options": OVERLAY_MODES},
+    {"group": "Overlay", "path": "overlay.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.amount", "label": "Amount (perspective / threshold)", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.count", "label": "Count (grid/radar/contours)", "min": 2.0, "max": 32.0, "step": 1.0},
+    {"group": "Overlay", "path": "overlay.scale", "label": "Scale (voronoi)", "min": 0.5, "max": 12.0, "step": 0.1},
+    {"group": "Overlay", "path": "overlay.line", "label": "Stroke", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.bright", "label": "Bright (ink → light)", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.speed", "label": "Drift", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Geo", "open": True, "path": "geo.mode", "label": "Mode", "type": "enum", "options": GEO_MODES},
     {"group": "Geo", "path": "geo.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "path": "geo.amount", "label": "Amount", "min": 0.0, "max": 0.8, "step": 0.01},
     {"group": "Geo", "path": "geo.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 0.8, "step": 0.01},
@@ -38,22 +60,22 @@ SLIDERS = [
     {"group": "Geo", "path": "geo.speed", "label": "Spin / drift", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "path": "geo.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "path": "geo.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Grade", "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
+    {"group": "Grade", "open": False, "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
     {"group": "Grade", "path": "grade.saturation", "label": "Saturation", "min": 0.0, "max": 1.5, "step": 0.01},
     {"group": "Grade", "path": "grade.crush", "label": "Crush", "min": 0.8, "max": 1.4, "step": 0.01},
-    {"group": "Flow", "path": "flow.amount", "label": "Amount", "min": 0.0, "max": 0.08, "step": 0.001},
+    {"group": "Flow", "open": False, "path": "flow.amount", "label": "Amount", "min": 0.0, "max": 0.08, "step": 0.001},
     {"group": "Flow", "path": "flow.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 0.08, "step": 0.001},
     {"group": "Flow", "path": "flow.scale", "label": "Scale", "min": 0.4, "max": 8.0, "step": 0.1},
     {"group": "Flow", "path": "flow.speed", "label": "Speed", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Flow", "path": "flow.speed_mod", "label": "Speed × energy", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Trails", "path": "trails.mix", "label": "Mix", "min": 0.0, "max": 0.7, "step": 0.01},
+    {"group": "Trails", "open": False, "path": "trails.mix", "label": "Mix", "min": 0.0, "max": 0.7, "step": 0.01},
     {"group": "Trails", "path": "trails.mix_mod", "label": "Mix × kick", "min": 0.0, "max": 0.7, "step": 0.01},
     {"group": "Trails", "path": "trails.decay", "label": "Decay", "min": 0.7, "max": 0.99, "step": 0.01},
     {"group": "Trails", "path": "trails.zoom", "label": "Zoom", "min": 0.99, "max": 1.03, "step": 0.001},
-    {"group": "Glow", "path": "glow.threshold", "label": "Threshold", "min": 0.2, "max": 0.9, "step": 0.01},
+    {"group": "Glow", "open": False, "path": "glow.threshold", "label": "Threshold", "min": 0.2, "max": 0.9, "step": 0.01},
     {"group": "Glow", "path": "glow.amount", "label": "Amount", "min": 0.0, "max": 1.2, "step": 0.01},
     {"group": "Glow", "path": "glow.amount_mod", "label": "Amount × RMS", "min": 0.0, "max": 1.2, "step": 0.01},
-    {"group": "Grain", "path": "grain.amount", "label": "Grain", "min": 0.0, "max": 0.2, "step": 0.005},
+    {"group": "Grain", "open": False, "path": "grain.amount", "label": "Grain", "min": 0.0, "max": 0.2, "step": 0.005},
     {"group": "Grain", "path": "grain.amount_mod", "label": "Grain × RMS", "min": 0.0, "max": 0.2, "step": 0.005},
     {"group": "Grain", "path": "grain.fiber", "label": "Fiber", "min": 0.0, "max": 0.3, "step": 0.01},
     {"group": "Grain", "path": "grain.fiber_mod", "label": "Fiber × mids", "min": 0.0, "max": 0.3, "step": 0.01},
@@ -63,6 +85,22 @@ SLIDERS = [
 def _take(cls, data: dict | None):
     valid = {f.name for f in fields(cls)}
     return cls(**{k: v for k, v in (data or {}).items() if k in valid})
+
+
+@dataclass
+class Overlay:
+    mode: str = "none"
+    mix: float = 0.45
+    amount: float = 0.35
+    amount_mod: float = 0.20
+    count: float = 8.0
+    scale: float = 4.0
+    line: float = 0.35
+    bright: float = 1.0
+    speed: float = 0.04
+    center_x: float = 0.5
+    center_y: float = 0.5
+    tint: list[float] = field(default_factory=lambda: [0.92, 0.84, 0.72])
 
 
 @dataclass
@@ -126,6 +164,7 @@ class Grain:
 
 @dataclass
 class Look:
+    overlay: Overlay = field(default_factory=Overlay)
     geo: Geo = field(default_factory=Geo)
     grade: Grade = field(default_factory=Grade)
     flow: Flow = field(default_factory=Flow)
@@ -142,7 +181,11 @@ class Look:
         geo_data = dict(data.get("geo") or {})
         if geo_data.get("mode") not in GEO_MODE_INDEX:
             geo_data["mode"] = "none"
+        overlay_data = dict(data.get("overlay") or {})
+        if overlay_data.get("mode") not in OVERLAY_MODE_INDEX:
+            overlay_data["mode"] = "none"
         return cls(
+            overlay=_take(Overlay, overlay_data),
             geo=_take(Geo, geo_data),
             grade=_take(Grade, data.get("grade")),
             flow=_take(Flow, data.get("flow")),
@@ -164,6 +207,7 @@ class Look:
     def replace(self, data: dict) -> None:
         """Mutate in place so the live stack picks up new values."""
         other = Look.from_dict(data)
+        self.overlay = other.overlay
         self.geo = other.geo
         self.grade = other.grade
         self.flow = other.flow

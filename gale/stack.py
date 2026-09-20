@@ -14,7 +14,7 @@ import numpy as np
 
 from gale.effects import load_effect
 from gale.engine.gl import ShaderPass
-from gale.look import GEO_MODE_INDEX, Look
+from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, Look
 from gale.timeline import Timeline
 
 UniformFn = Callable[[float], dict]
@@ -211,6 +211,22 @@ def build_look(
             "tint": tuple(gl.tint),
         }
 
+    def overlay(t: float) -> dict:
+        o = params.overlay
+        energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
+        return {
+            "mode": int(OVERLAY_MODE_INDEX.get(o.mode, 0)),
+            "mix_amt": 0.0 if o.mode == "none" else o.mix,
+            "amount": o.amount + o.amount_mod * energy,
+            "line_amt": o.line,
+            "scale": o.scale,
+            "count": o.count,
+            "speed": o.speed,
+            "bright": o.bright,
+            "center": (o.center_x, o.center_y),
+            "tint": tuple(o.tint),
+        }
+
     def grain(t: float) -> dict:
         gr = params.grain
         return {
@@ -225,6 +241,7 @@ def build_look(
             Simple(ctx, "curl_flow", width, height, flow),
             Feedback(ctx, width, height, trails),
             Halation(ctx, width, height, glow),
+            Simple(ctx, "overlay", width, height, overlay),
             Simple(ctx, "grain", width, height, grain),
         ]
     )

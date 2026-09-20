@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -23,6 +24,7 @@ from gale.stack import build_look
 
 STATIC = Path(__file__).parent / "static"
 OUT_DIR = Path("out")
+STILLS_DIR = OUT_DIR / "stills"
 FRAME_PATH = OUT_DIR / "play_frame.jpg"
 PREVIEW_PATH = OUT_DIR / "play_preview.mp4"
 HOST, PORT = "127.0.0.1", 8765
@@ -38,6 +40,7 @@ class Session:
         self.look_path = Path(args.look)
         self.params = Look.load(self.look_path) if self.look_path.exists() else Look()
         OUT_DIR.mkdir(parents=True, exist_ok=True)
+        STILLS_DIR.mkdir(parents=True, exist_ok=True)
 
         info = probe(args.input)
         self.src_fps = info.fps
@@ -103,6 +106,22 @@ class Session:
         image = self._apply_range(start, end)
         write_jpeg(str(FRAME_PATH), image)
 
+    def export_still(self, t: float) -> Path:
+        """Write a unique jpeg + look yaml into out/stills/. Frame preview is left alone."""
+        end = self.index_at(t)
+        start = max(0, end - 24)
+        image = self._apply_range(start, end)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        ov = self.params.overlay.mode
+        geo = self.params.geo.mode
+        stem = f"{stamp}_t{t:.1f}_{ov}_{geo}"
+        img_path = STILLS_DIR / f"{stem}.jpg"
+        yaml_path = STILLS_DIR / f"{stem}.yaml"
+        write_jpeg(str(img_path), image)
+        write_jpeg(str(FRAME_PATH), image)
+        self.params.save(yaml_path)
+        return img_path
+
     def render_preview(self, t: float, duration: float) -> None:
         start = self.index_at(t)
         n = max(1, int(duration * self.preview_fps))
@@ -164,6 +183,10 @@ class Handler(BaseHTTPRequestHandler):
             data = PREVIEW_PATH.read_bytes() if PREVIEW_PATH.exists() else b""
             self._send(200 if data else 404, data, "video/mp4")
             return
+        if path == "/media/frame.jpg":
+            data = FRAME_PATH.read_bytes() if FRAME_PATH.exists() else b""
+            self._send(200 if data else 404, data, "image/jpeg")
+            return
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:
@@ -176,6 +199,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/frame":
                 SESSION.render_frame(float(body.get("t", 0)))
                 self._send(200, FRAME_PATH.read_bytes(), "image/jpeg")
+                return
+            if path == "/api/export":
+                path_out = SESSION.export_still(float(body.get("t", 0)))
+                payload = {"ok": True, "path": str(path_out), "name": path_out.name}
+                self._send(200, json.dumps(payload).encode(), "application/json")
                 return
             if path == "/api/preview":
                 SESSION.render_preview(float(body.get("t", 0)), float(body.get("duration", 4)))

@@ -22,11 +22,22 @@
   .stage .bar { padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     border-top: 1px solid var(--line); }
   .side { overflow: auto; padding: 16px 18px 40px; }
+  .side-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
   h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--mute); margin: 0 0 16px; }
-  .group { margin: 0 0 22px; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
-  .group h2 { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
-    color: var(--accent); margin: 0 0 10px; }
+    color: var(--mute); margin: 0; }
+  .toggles { margin-left: auto; display: flex; gap: 6px; }
+  .toggles button { padding: 3px 8px; font-size: 11px; color: var(--mute); }
+  details.group { margin: 0 0 8px; border: 1px solid var(--line); background: var(--panel); }
+  details.group > summary {
+    list-style: none; cursor: pointer; padding: 9px 12px;
+    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px; user-select: none;
+  }
+  details.group > summary::-webkit-details-marker { display: none; }
+  details.group > summary::before { content: "+"; color: var(--mute); width: 10px; }
+  details.group[open] > summary::before { content: "–"; }
+  details.group > summary .hint { margin-left: auto; color: var(--mute); letter-spacing: 0; text-transform: none; font-size: 11px; }
+  .group-body { padding: 4px 12px 10px; border-top: 1px solid var(--line); }
   label.row { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; margin: 0 0 8px; }
   label.row.enum { grid-template-columns: 1fr; }
   label.row span { color: var(--mute); }
@@ -58,13 +69,20 @@
     <div class="bar">
       <label>t <input id="time" type="number" min="0" step="0.1" value="2" /></label>
       <button id="btn-still">Frame</button>
+      <button id="btn-keep">Keep</button>
       <button id="btn-motion" class="primary">Loop 4s</button>
       <button id="btn-save">Save YAML</button>
       <span class="status" id="status">loading…</span>
     </div>
   </div>
   <div class="side">
-    <h1>look</h1>
+    <div class="side-head">
+      <h1>look</h1>
+      <div class="toggles">
+        <button id="btn-expand" type="button">all</button>
+        <button id="btn-collapse" type="button">none</button>
+      </div>
+    </div>
     <div id="sliders"></div>
   </div>
 </div>
@@ -101,16 +119,41 @@ function showMotion(url) {
   motion.play();
 }
 
+function storageKey(name) { return "gale-open-" + name; }
+function isOpen(name, fallback) {
+  const v = localStorage.getItem(storageKey(name));
+  if (v === null) return !!fallback;
+  return v === "1";
+}
+function setOpen(name, open) {
+  localStorage.setItem(storageKey(name), open ? "1" : "0");
+}
+
+function groupHint(name) {
+  const key = name.toLowerCase();
+  const block = look[key];
+  if (block && typeof block.mode === "string") return block.mode;
+  return "";
+}
+
 function renderSliders(schema) {
   slidersRoot.innerHTML = "";
-  let group = null, box = null;
+  let group = null, body = null, details = null;
   for (const s of schema) {
     if (s.group !== group) {
       group = s.group;
-      box = document.createElement("div");
-      box.className = "group";
-      box.innerHTML = `<h2>${group}</h2>`;
-      slidersRoot.appendChild(box);
+      details = document.createElement("details");
+      details.className = "group";
+      details.open = isOpen(group, s.open);
+      details.addEventListener("toggle", () => setOpen(group, details.open));
+      const summary = document.createElement("summary");
+      const hint = groupHint(group);
+      summary.innerHTML = `<span>${group}</span>` + (hint ? `<span class="hint">${hint}</span>` : "");
+      details.appendChild(summary);
+      body = document.createElement("div");
+      body.className = "group-body";
+      details.appendChild(body);
+      slidersRoot.appendChild(details);
     }
     const val = getPath(look, s.path);
     const row = document.createElement("label");
@@ -123,6 +166,9 @@ function renderSliders(schema) {
       row.innerHTML = `<span>${s.label}</span><select>${opts}</select>`;
       row.querySelector("select").addEventListener("change", (ev) => {
         setPath(look, s.path, ev.target.value);
+        const sum = row.closest("details").querySelector("summary .hint")
+          || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary").appendChild(h); return h; })();
+        sum.textContent = ev.target.value;
         showStill();
         scheduleFrame();
       });
@@ -143,7 +189,7 @@ function renderSliders(schema) {
         scheduleFrame();
       });
     }
-    box.appendChild(row);
+    body.appendChild(row);
   }
 }
 
@@ -198,9 +244,42 @@ async function saveLook() {
   status.textContent = res.ok ? "saved configs/look.yaml" : await res.text();
 }
 
+async function keepStill() {
+  status.textContent = "keeping…";
+  const res = await fetch("/api/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ look, t: parseFloat(timeInput.value) || 0 }),
+  });
+  if (!res.ok) {
+    status.textContent = await res.text();
+    return;
+  }
+  const data = await res.json();
+  still.src = "/media/frame.jpg?t=" + Date.now();
+  showStill();
+  status.textContent = "kept " + data.name;
+}
+
 document.getElementById("btn-still").onclick = () => { showStill(); fetchFrame(); };
+document.getElementById("btn-keep").onclick = () => { showStill(); keepStill(); };
 document.getElementById("btn-motion").onclick = fetchMotion;
 document.getElementById("btn-save").onclick = saveLook;
+document.addEventListener("keydown", (ev) => {
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const tag = (ev.target && ev.target.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (ev.key === "k" || ev.key === "K") {
+    ev.preventDefault();
+    keepStill();
+  }
+});
+document.getElementById("btn-expand").onclick = () => {
+  document.querySelectorAll("details.group").forEach((d) => { d.open = true; setOpen(d.querySelector("summary span").textContent, true); });
+};
+document.getElementById("btn-collapse").onclick = () => {
+  document.querySelectorAll("details.group").forEach((d) => { d.open = false; setOpen(d.querySelector("summary span").textContent, false); });
+};
 timeInput.addEventListener("change", () => { showStill(); fetchFrame(); });
 
 (async () => {
