@@ -11,8 +11,33 @@ from pathlib import Path
 
 import yaml
 
+GEO_MODES = [
+    "none",
+    "slices",
+    "polar",
+    "voronoi",
+    "kaleido",
+    "fold",
+    "mosaic",
+    "luma",
+    "droste",
+    "hex",
+    "tiles",
+]
+GEO_MODE_INDEX = {name: i for i, name in enumerate(GEO_MODES)}
+
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
 SLIDERS = [
+    {"group": "Geo", "path": "geo.mode", "label": "Mode", "type": "enum", "options": GEO_MODES},
+    {"group": "Geo", "path": "geo.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Geo", "path": "geo.amount", "label": "Amount", "min": 0.0, "max": 0.8, "step": 0.01},
+    {"group": "Geo", "path": "geo.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 0.8, "step": 0.01},
+    {"group": "Geo", "path": "geo.count", "label": "Count (slices/kaleido/tiles)", "min": 2.0, "max": 36.0, "step": 1.0},
+    {"group": "Geo", "path": "geo.scale", "label": "Scale (voronoi/fold/hex/droste)", "min": 0.5, "max": 12.0, "step": 0.1},
+    {"group": "Geo", "path": "geo.line", "label": "Cell lines", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Geo", "path": "geo.speed", "label": "Spin / drift", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Geo", "path": "geo.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Geo", "path": "geo.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Grade", "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
     {"group": "Grade", "path": "grade.saturation", "label": "Saturation", "min": 0.0, "max": 1.5, "step": 0.01},
     {"group": "Grade", "path": "grade.crush", "label": "Crush", "min": 0.8, "max": 1.4, "step": 0.01},
@@ -38,6 +63,20 @@ SLIDERS = [
 def _take(cls, data: dict | None):
     valid = {f.name for f in fields(cls)}
     return cls(**{k: v for k, v in (data or {}).items() if k in valid})
+
+
+@dataclass
+class Geo:
+    mode: str = "none"
+    mix: float = 1.0
+    amount: float = 0.18
+    amount_mod: float = 0.12
+    count: float = 8.0
+    scale: float = 4.0
+    line: float = 0.12
+    speed: float = 0.04
+    center_x: float = 0.5
+    center_y: float = 0.5
 
 
 @dataclass
@@ -87,6 +126,7 @@ class Grain:
 
 @dataclass
 class Look:
+    geo: Geo = field(default_factory=Geo)
     grade: Grade = field(default_factory=Grade)
     flow: Flow = field(default_factory=Flow)
     trails: Trails = field(default_factory=Trails)
@@ -99,7 +139,11 @@ class Look:
     @classmethod
     def from_dict(cls, data: dict | None) -> "Look":
         data = data or {}
+        geo_data = dict(data.get("geo") or {})
+        if geo_data.get("mode") not in GEO_MODE_INDEX:
+            geo_data["mode"] = "none"
         return cls(
+            geo=_take(Geo, geo_data),
             grade=_take(Grade, data.get("grade")),
             flow=_take(Flow, data.get("flow")),
             trails=_take(Trails, data.get("trails")),
@@ -120,6 +164,7 @@ class Look:
     def replace(self, data: dict) -> None:
         """Mutate in place so the live stack picks up new values."""
         other = Look.from_dict(data)
+        self.geo = other.geo
         self.grade = other.grade
         self.flow = other.flow
         self.trails = other.trails

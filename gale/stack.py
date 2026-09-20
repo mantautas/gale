@@ -14,7 +14,7 @@ import numpy as np
 
 from gale.effects import load_effect
 from gale.engine.gl import ShaderPass
-from gale.look import Look
+from gale.look import GEO_MODE_INDEX, Look
 from gale.timeline import Timeline
 
 UniformFn = Callable[[float], dict]
@@ -169,6 +169,20 @@ def build_look(
             "highlight_tint": tuple(g.highlight_tint),
         }
 
+    def geo(t: float) -> dict:
+        g = params.geo
+        energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
+        return {
+            "mode": int(GEO_MODE_INDEX.get(g.mode, 0)),
+            "mix_amt": 0.0 if g.mode == "none" else g.mix,
+            "amount": g.amount + g.amount_mod * energy,
+            "scale": g.scale,
+            "count": g.count,
+            "line_amt": g.line,
+            "speed": g.speed,
+            "center": (g.center_x, g.center_y),
+        }
+
     def flow(t: float) -> dict:
         energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
         f = params.flow
@@ -207,6 +221,7 @@ def build_look(
     return Stack(
         [
             Simple(ctx, "grade", width, height, grade),
+            Simple(ctx, "geo", width, height, geo),
             Simple(ctx, "curl_flow", width, height, flow),
             Feedback(ctx, width, height, trails),
             Halation(ctx, width, height, glow),

@@ -28,9 +28,14 @@
   .group h2 { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
     color: var(--accent); margin: 0 0 10px; }
   label.row { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; margin: 0 0 8px; }
+  label.row.enum { grid-template-columns: 1fr; }
   label.row span { color: var(--mute); }
   label.row output { text-align: right; color: var(--text); }
   input[type=range] { width: 100%; grid-column: 1 / -1; accent-color: var(--accent); }
+  select {
+    width: 100%; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); padding: 6px 8px; font: inherit;
+  }
   button {
     background: var(--panel); color: var(--text); border: 1px solid var(--line);
     padding: 6px 12px; font: inherit; cursor: pointer;
@@ -109,21 +114,35 @@ function renderSliders(schema) {
     }
     const val = getPath(look, s.path);
     const row = document.createElement("label");
-    row.className = "row";
-    row.innerHTML = `
-      <span>${s.label}</span>
-      <output>${Number(val).toFixed(3)}</output>
-      <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
-    `;
-    const input = row.querySelector("input");
-    const out = row.querySelector("output");
-    input.addEventListener("input", () => {
-      const v = parseFloat(input.value);
-      out.textContent = v.toFixed(3);
-      setPath(look, s.path, v);
-      showStill();
-      scheduleFrame();
-    });
+    if (s.type === "enum") {
+      row.className = "row enum";
+      const opts = (s.options || []).map((opt) => {
+        const sel = opt === val ? " selected" : "";
+        return `<option value="${opt}"${sel}>${opt}</option>`;
+      }).join("");
+      row.innerHTML = `<span>${s.label}</span><select>${opts}</select>`;
+      row.querySelector("select").addEventListener("change", (ev) => {
+        setPath(look, s.path, ev.target.value);
+        showStill();
+        scheduleFrame();
+      });
+    } else {
+      row.className = "row";
+      row.innerHTML = `
+        <span>${s.label}</span>
+        <output>${Number(val).toFixed(3)}</output>
+        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
+      `;
+      const input = row.querySelector("input");
+      const out = row.querySelector("output");
+      input.addEventListener("input", () => {
+        const v = parseFloat(input.value);
+        out.textContent = v.toFixed(3);
+        setPath(look, s.path, v);
+        showStill();
+        scheduleFrame();
+      });
+    }
     box.appendChild(row);
   }
 }
