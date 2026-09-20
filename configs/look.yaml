@@ -1,0 +1,39 @@
+grade:
+  contrast: 1.23
+  saturation: 0.1
+  crush: 1.21
+  shadow_tint:
+  - 0.86
+  - 0.94
+  - 1.05
+  highlight_tint:
+  - 1.06
+  - 0.98
+  - 0.9
+flow:
+  amount: 0
+  amount_mod: 0
+  scale: 2.4
+  speed: 0.12
+  speed_mod: 0.2
+trails:
+  mix: 0.17
+  mix_mod: 0
+  decay: 0.94
+  zoom: 0.99
+  angle: 0.004
+  hit_tau: 0.4
+glow:
+  threshold: 0.9
+  knee: 0.28
+  amount: 1.01
+  amount_mod: 0.35
+  tint:
+  - 1
+  - 0.36
+  - 0.14
+grain:
+  amount: 0.19
+  amount_mod: 0.2
+  fiber: 0.3
+  fiber_mod: 0.3

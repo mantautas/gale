@@ -1,0 +1,9 @@
+.venv/
+.bin/
+.uv-cache/
+.uv-python/
+__pycache__/
+assets/
+out/
+analysis.json
+*.png
