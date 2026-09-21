@@ -79,10 +79,21 @@
     color: var(--mute); font-size: 11px; line-height: 1.2;
     overflow: hidden;
   }
-  .row .label { min-width: 0; }
+  .row .label { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; }
   .row .label .affects {
     display: block; font-size: 9px; opacity: 0.8; letter-spacing: 0;
+    flex: 1 1 100%;
   }
+  .note {
+    display: none;
+    width: 10px; height: 10px;
+    color: var(--accent);
+    flex-shrink: 0;
+    vertical-align: -1px;
+  }
+  .row.from-score > .label > .note,
+  .depth .note { display: inline-block; }
+  .row.from-score > .label { color: var(--text); }
   .row output, .row .base {
     text-align: right; color: var(--text); font-variant-numeric: tabular-nums; font-size: 11px;
   }
@@ -188,11 +199,13 @@ let sectionAttr = {
   Trails: "trails",
   Glow: "glow",
   Grain: "grain",
+  Halftone: "halftone",
+  CRT: "crt",
 };
 const nowOutputs = {};
 
 const AUTO_SHAPES = ["increasing", "decreasing", "wave"];
-const MOD_SOURCES = ["rms", "low", "mid", "high", "energy", "beat", "onset"];
+const MOD_SOURCES = ["rms", "low", "mid", "high", "energy", "beat", "onset", "kick"];
 
 function ensureBindings() {
   if (!Array.isArray(look.bindings)) look.bindings = [];
@@ -371,11 +384,43 @@ function groupHint(name) {
   return "";
 }
 
+function isAudioSlider(s) {
+  return !!(s && (s.audio || (typeof s.path === "string" && s.path.endsWith("_mod"))));
+}
+
+function soundtrackLive(path) {
+  const binding = getBinding(path);
+  if (binding && binding.modulate && binding.modulate !== "none") return true;
+  if (String(path).endsWith("_mod")) return true;
+  const sibling = getPath(look, path + "_mod");
+  return !!(Number(sibling) || 0);
+}
+
+function syncSoundtrackMarks() {
+  document.querySelectorAll(".row[data-path]").forEach((row) => {
+    const path = row.dataset.path;
+    const live = row.dataset.audio === "1" || soundtrackLive(path);
+    row.classList.toggle("from-score", live);
+    const note = row.querySelector(":scope > .label > .note");
+    if (note) {
+      note.hidden = !live;
+      note.setAttribute("aria-hidden", live ? "false" : "true");
+    }
+  });
+}
+
+function noteIcon() {
+  return `<svg class="note" viewBox="0 0 12 12" focusable="false" aria-hidden="true">
+    <title>Soundtrack</title>
+    <path fill="currentColor" d="M8.6 1.1v6.4a2.2 2.2 0 1 1-.95-1.8V3L4.1 4.05v4.75a2.2 2.2 0 1 1-.95-1.8V2.5L8.6 1.1z"/>
+  </svg>`;
+}
+
 function labelCell(s) {
   const modesText = s.modes ? String(s.modes).replaceAll("/", "/\u200b") : "";
   const modes = modesText ? `<span class="affects">${modesText}</span>` : "";
   const title = s.modes ? `${s.label} (${s.modes})` : s.label;
-  return `<span class="label" title="${title}">${s.label}${modes}</span>`;
+  return `<span class="label" title="${title}">${noteIcon()}<span class="name">${s.label}</span>${modes}</span>`;
 }
 
 function renderSliders(schemaIn) {
@@ -461,6 +506,8 @@ function renderSliders(schemaIn) {
     } else {
       const row = document.createElement("div");
       row.className = "row";
+      row.dataset.path = s.path;
+      if (isAudioSlider(s)) row.dataset.audio = "1";
       row.innerHTML = `
         ${labelCell(s)}
         <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
@@ -473,12 +520,14 @@ function renderSliders(schemaIn) {
         const v = parseFloat(input.value);
         out.textContent = v.toFixed(3);
         setPath(look, s.path, v);
+        syncSoundtrackMarks();
         showStill();
         scheduleFrame();
       });
       body.appendChild(row);
     }
   }
+  syncSoundtrackMarks();
 }
 
 function renderBindableRow(s, val) {
@@ -506,13 +555,14 @@ function renderBindableRow(s, val) {
     <output class="base">${Number(val).toFixed(3)}</output>
     <span class="props">
       <button type="button" class="auto-btn${autoOn ? " on" : ""}">A</button>
-      <button type="button" class="mod-btn${modOn ? " on" : ""}">M</button>
+      <button type="button" class="mod-btn${modOn ? " on" : ""}" title="Soundtrack">M</button>
     </span>
     <span class="now">now <output class="now-val">${Number(val).toFixed(3)}</output></span>
     <div class="bind-extra"${showExtra ? "" : " hidden"}>
       <select class="auto-shape"${autoOn ? "" : " hidden"}>${autoOpts}</select>
       <select class="mod-source"${modOn ? "" : " hidden"}>${modOpts}</select>
       <label class="depth"${modOn ? "" : " hidden"}>
+        ${noteIcon()}
         Str
         <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${depth}" />
         <output>${depth.toFixed(3)}</output>
@@ -550,6 +600,7 @@ function renderBindableRow(s, val) {
     };
     setBinding(s.path, next);
     syncExtra();
+    syncSoundtrackMarks();
     showStill();
     scheduleFrame();
   }

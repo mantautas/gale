@@ -87,6 +87,8 @@ class Timeline:
             return self.beat_pulse(t)
         if source == "onset":
             return self.onset_pulse(t)
+        if source == "kick":
+            return self.onset_pulse(t, "low", tau=0.40)
         if source in self._curves:
             return self.value(source, t)
         return 0.0

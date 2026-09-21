@@ -25,6 +25,9 @@ BINDABLE_PATHS = (
     "overlay.amount",
     "overlay.count",
     "overlay.scale",
+    "trails.mix",
+    "halftone.scale",
+    "crt.scanlines",
 )
 
 
@@ -254,9 +257,9 @@ def build_look(
 
     def trails(t: float) -> dict:
         tr = params.trails
-        hit = tl.onset_pulse(t, "low", tau=tr.hit_tau)
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
         return {
-            "mix_amt": tr.mix + tr.mix_mod * hit,
+            "mix_amt": resolved["trails.mix"],
             "decay": tr.decay,
             "zoom": tr.zoom,
             "angle": tr.angle,
@@ -294,6 +297,28 @@ def build_look(
             "fiber": gr.fiber + gr.fiber_mod * tl.value("mid", t),
         }
 
+    def halftone(t: float) -> dict:
+        h = params.halftone
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
+        return {
+            "mix_amt": h.amount,
+            "scale": resolved["halftone.scale"],
+            "angle": h.angle,
+            "contrast": h.contrast,
+        }
+
+    def crt(t: float) -> dict:
+        c = params.crt
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
+        return {
+            "mix_amt": c.amount,
+            "scanlines": resolved["crt.scanlines"],
+            "mask_amt": c.mask,
+            "curvature": c.curvature,
+            "vignette": c.vignette,
+            "bleed": c.bleed,
+        }
+
     return Stack(
         [
             (Simple(ctx, "grade", width, height, grade), lambda: params.grade.enabled),
@@ -302,7 +327,9 @@ def build_look(
             (Feedback(ctx, width, height, trails), lambda: params.trails.enabled),
             (Halation(ctx, width, height, glow), lambda: params.glow.enabled),
             (Simple(ctx, "overlay", width, height, overlay), lambda: params.overlay.enabled and params.overlay.mode != "none"),
+            (Simple(ctx, "halftone", width, height, halftone), lambda: params.halftone.enabled),
             (Simple(ctx, "grain", width, height, grain), lambda: params.grain.enabled),
+            (Simple(ctx, "crt", width, height, crt), lambda: params.crt.enabled),
         ],
         clip_state,
         fallback,
