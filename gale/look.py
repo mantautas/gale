@@ -3,7 +3,7 @@
 `*_mod` fields are the extra amount added when the matching audio
 feature is at 1.0. Set a mod to 0 to make that effect static.
 
-`bindings` drive Auto/Mod for selected paths (geo.amount, geo.count, geo.scale).
+`bindings` drive Auto/Mod for geo/overlay amount, count, and scale.
 """
 
 from __future__ import annotations
@@ -42,27 +42,97 @@ OVERLAY_MODE_INDEX = {name: i for i, name in enumerate(OVERLAY_MODES)}
 AUTOMATION_MODES = ["none", "increasing", "decreasing", "wave"]
 MODULATE_SOURCES = ["none", "rms", "low", "mid", "high", "energy", "beat", "onset"]
 
+# UI group name → Look section attribute (for enable toggles).
+SECTION_ATTR = {
+    "Overlay": "overlay",
+    "Geo": "geo",
+    "Grade": "grade",
+    "Flow": "flow",
+    "Trails": "trails",
+    "Glow": "glow",
+    "Grain": "grain",
+}
+
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
 # `open` on the first row of a group is the default collapsed state.
 # `bindable` marks rows that get Auto/Mod controls.
 SLIDERS = [
     {"group": "Overlay", "open": True, "path": "overlay.mode", "label": "Mode", "type": "enum", "options": OVERLAY_MODES},
     {"group": "Overlay", "path": "overlay.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.amount", "label": "Amount (perspective / threshold)", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.count", "label": "Count (grid/radar/contours)", "min": 2.0, "max": 32.0, "step": 1.0},
-    {"group": "Overlay", "path": "overlay.scale", "label": "Scale (voronoi)", "min": 0.5, "max": 12.0, "step": 0.1},
-    {"group": "Overlay", "path": "overlay.line", "label": "Stroke", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.bright", "label": "Bright (ink → light)", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.speed", "label": "Drift", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Overlay", "path": "overlay.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Overlay",
+        "path": "overlay.amount",
+        "label": "Amount",
+        "modes": "grid/contours/edges",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+        "bindable": True,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.count",
+        "label": "Count",
+        "modes": "grid/radar/contours",
+        "min": 2.0,
+        "max": 32.0,
+        "step": 1.0,
+        "bindable": True,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.scale",
+        "label": "Scale",
+        "modes": "voronoi",
+        "min": 0.5,
+        "max": 12.0,
+        "step": 0.1,
+        "bindable": True,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.line",
+        "label": "Stroke",
+        "modes": "grid/radar/contours/voronoi",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {"group": "Overlay", "path": "overlay.bright", "label": "Bright", "modes": "ink → light", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Overlay",
+        "path": "overlay.speed",
+        "label": "Drift",
+        "modes": "grid/radar",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.center_x",
+        "label": "Center X",
+        "modes": "grid/radar",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.center_y",
+        "label": "Center Y",
+        "modes": "grid/radar",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
     {"group": "Geo", "open": True, "path": "geo.mode", "label": "Mode", "type": "enum", "options": GEO_MODES},
     {"group": "Geo", "path": "geo.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
     {
         "group": "Geo",
         "path": "geo.amount",
         "label": "Amount",
+        "modes": "slices/polar/voronoi/fold/mosaic/luma/droste/hex",
         "min": 0.0,
         "max": 0.8,
         "step": 0.01,
@@ -71,7 +141,8 @@ SLIDERS = [
     {
         "group": "Geo",
         "path": "geo.count",
-        "label": "Count (slices/kaleido/tiles)",
+        "label": "Count",
+        "modes": "slices/polar/kaleido/mosaic/tiles",
         "min": 2.0,
         "max": 36.0,
         "step": 1.0,
@@ -80,16 +151,49 @@ SLIDERS = [
     {
         "group": "Geo",
         "path": "geo.scale",
-        "label": "Scale (voronoi/fold/hex/droste)",
+        "label": "Scale",
+        "modes": "voronoi/fold/hex/droste",
         "min": 0.5,
         "max": 12.0,
         "step": 0.1,
         "bindable": True,
     },
-    {"group": "Geo", "path": "geo.line", "label": "Cell lines", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Geo", "path": "geo.speed", "label": "Spin / drift", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Geo", "path": "geo.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Geo", "path": "geo.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Geo",
+        "path": "geo.line",
+        "label": "Lines",
+        "modes": "slices/voronoi/mosaic/hex",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {
+        "group": "Geo",
+        "path": "geo.speed",
+        "label": "Spin",
+        "modes": "polar/kaleido/droste",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {
+        "group": "Geo",
+        "path": "geo.center_x",
+        "label": "Center X",
+        "modes": "polar/kaleido/luma/droste",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
+    {
+        "group": "Geo",
+        "path": "geo.center_y",
+        "label": "Center Y",
+        "modes": "polar/kaleido/luma/droste",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+    },
     {"group": "Grade", "open": False, "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
     {"group": "Grade", "path": "grade.saturation", "label": "Saturation", "min": 0.0, "max": 1.5, "step": 0.01},
     {"group": "Grade", "path": "grade.crush", "label": "Crush", "min": 0.8, "max": 1.4, "step": 0.01},
@@ -119,10 +223,11 @@ def _take(cls, data: dict | None):
 
 @dataclass
 class Overlay:
+    enabled: bool = True
     mode: str = "none"
     mix: float = 0.45
     amount: float = 0.35
-    amount_mod: float = 0.20
+    amount_mod: float = 0.0
     count: float = 8.0
     scale: float = 4.0
     line: float = 0.35
@@ -135,6 +240,7 @@ class Overlay:
 
 @dataclass
 class Geo:
+    enabled: bool = True
     mode: str = "none"
     mix: float = 1.0
     amount: float = 0.18
@@ -149,6 +255,7 @@ class Geo:
 
 @dataclass
 class Grade:
+    enabled: bool = True
     contrast: float = 1.12
     saturation: float = 0.82
     crush: float = 1.08
@@ -158,6 +265,7 @@ class Grade:
 
 @dataclass
 class Flow:
+    enabled: bool = True
     amount: float = 0.006
     amount_mod: float = 0.018
     scale: float = 2.4
@@ -167,6 +275,7 @@ class Flow:
 
 @dataclass
 class Trails:
+    enabled: bool = True
     mix: float = 0.14
     mix_mod: float = 0.28
     decay: float = 0.94
@@ -177,6 +286,7 @@ class Trails:
 
 @dataclass
 class Glow:
+    enabled: bool = True
     threshold: float = 0.52
     knee: float = 0.28
     amount: float = 0.22
@@ -186,6 +296,7 @@ class Glow:
 
 @dataclass
 class Grain:
+    enabled: bool = True
     amount: float = 0.045
     amount_mod: float = 0.070
     fiber: float = 0.06
@@ -285,16 +396,18 @@ def resolve_bound(
     return max(lo, min(hi, shaped))
 
 
-def _migrate_geo_amount_mod(geo_data: dict, bindings: list[Binding]) -> list[Binding]:
-    """Old geo.amount_mod → binding modulate:energy if no binding yet."""
-    if any(b.path == "geo.amount" for b in bindings):
+def _migrate_amount_mod(section: dict, path: str, bindings: list[Binding]) -> list[Binding]:
+    """Old *.amount_mod slider → binding modulate:energy if no binding yet."""
+    if any(b.path == path for b in bindings):
         return bindings
-    amount_mod = float(geo_data.get("amount_mod") or 0.0)
+    if "amount_mod" not in section:
+        return bindings
+    amount_mod = float(section.get("amount_mod") or 0.0)
     if amount_mod == 0.0:
         return bindings
     bindings = list(bindings)
     bindings.append(
-        Binding(path="geo.amount", automation="none", modulate="energy", depth=amount_mod)
+        Binding(path=path, automation="none", modulate="energy", depth=amount_mod)
     )
     return bindings
 
@@ -347,7 +460,8 @@ class Look:
                 if b is not None:
                     bindings.append(b)
         if migrate:
-            bindings = _migrate_geo_amount_mod(geo_data, bindings)
+            bindings = _migrate_amount_mod(geo_data, "geo.amount", bindings)
+            bindings = _migrate_amount_mod(overlay_data, "overlay.amount", bindings)
         return cls(
             overlay=_take(Overlay, overlay_data),
             geo=_take(Geo, geo_data),

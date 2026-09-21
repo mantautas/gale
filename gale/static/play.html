@@ -16,9 +16,9 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
     font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .wrap { display: grid; grid-template-columns: minmax(260px, 36vw) 1fr; height: 100%; min-height: 0; }
+  .wrap { display: grid; grid-template-columns: 1fr minmax(280px, 26vw); height: 100%; min-height: 0; }
   .stage { display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-    background: #0b0a09; border-right: 1px solid var(--line); }
+    background: #0b0a09; }
   .stage .view {
     flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
     background: #000;
@@ -29,62 +29,93 @@
   }
   .stage .bar { flex-shrink: 0; padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     border-top: 1px solid var(--line); }
-  .side { min-height: 0; overflow: auto; padding: 16px 18px 40px; }
-  body[data-kind="photo"] #btn-motion { display: none; }
+  .side {
+    min-height: 0; overflow: auto; padding: 12px 10px 32px;
+    border-left: 1px solid var(--line); background: var(--bg);
+  }
+  body[data-kind="photo"] #btn-motion,
+  body[data-kind="photo"] #btn-mute { display: none; }
   .mode { display: flex; gap: 0; border: 1px solid var(--line); }
   .mode button { border: 0; padding: 6px 10px; }
-  .mode button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .side-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+  .mode button.on,
+  #btn-mute.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .side-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
   h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--mute); margin: 0; }
   .toggles { margin-left: auto; display: flex; gap: 6px; }
   .toggles button { padding: 3px 8px; font-size: 11px; color: var(--mute); }
-  details.group { margin: 0 0 8px; border: 1px solid var(--line); background: var(--panel); }
+  details.group { margin: 0 0 6px; border: 1px solid var(--line); background: var(--panel); }
+  details.group.off { opacity: 0.45; }
   details.group > summary {
-    list-style: none; cursor: pointer; padding: 9px 12px;
-    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    list-style: none; cursor: pointer; padding: 7px 8px;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--accent); display: flex; align-items: center; gap: 8px; user-select: none;
   }
   details.group > summary::-webkit-details-marker { display: none; }
-  details.group > summary::before { content: "+"; color: var(--mute); width: 10px; }
+  details.group > summary::before { content: "+"; color: var(--mute); width: 10px; flex-shrink: 0; }
   details.group[open] > summary::before { content: "–"; }
-  details.group > summary .hint { margin-left: auto; color: var(--mute); letter-spacing: 0; text-transform: none; font-size: 11px; }
-  .group-body { padding: 4px 12px 10px; border-top: 1px solid var(--line); }
-  label.row { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; margin: 0 0 8px; }
-  label.row.enum { grid-template-columns: 1fr; }
-  label.row span { color: var(--mute); }
-  label.row output { text-align: right; color: var(--text); }
-  .row.bindable {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 6px 8px; align-items: center;
-    margin: 0 0 10px;
+  details.group > summary .name { flex-shrink: 0; }
+  details.group > summary .hint {
+    color: var(--mute); letter-spacing: 0; text-transform: none; font-size: 11px;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .row.bindable > .label { color: var(--mute); }
-  .row.bindable > .base { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
-  .row.bindable > .now {
-    color: var(--mute); font-size: 11px; white-space: nowrap;
+  details.group > summary .en {
+    margin-left: auto; flex-shrink: 0; padding: 2px 8px; font-size: 10px; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--mute);
   }
-  .row.bindable > .now output { color: var(--accent); }
-  .row.bindable > input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
-  .row.bindable > .bind-bar {
-    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  details.group > summary .en.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .group-body { padding: 4px 8px 8px; border-top: 1px solid var(--line); }
+  details.group.off .group-body { pointer-events: none; }
+  /* name | slider | value | props */
+  .row {
+    display: grid;
+    grid-template-columns: 108px minmax(40px, 1fr) 40px auto;
+    gap: 4px 6px;
+    align-items: center;
+    margin: 0 0 3px;
   }
-  .bind-bar button {
-    padding: 3px 8px; font-size: 11px;
+  .row.enum { grid-template-columns: 108px 1fr; }
+  .row .label, .row > span:first-child {
+    color: var(--mute); font-size: 11px; line-height: 1.2;
+    overflow: hidden;
   }
-  .bind-bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .bind-bar select {
-    width: auto; min-width: 110px; padding: 3px 6px; font-size: 11px;
+  .row .label { min-width: 0; }
+  .row .label .affects {
+    display: block; font-size: 9px; opacity: 0.8; letter-spacing: 0;
   }
-  .bind-bar .depth {
-    display: flex; align-items: center; gap: 6px; color: var(--mute); font-size: 11px;
-    flex: 1 1 140px;
+  .row output, .row .base {
+    text-align: right; color: var(--text); font-variant-numeric: tabular-nums; font-size: 11px;
   }
-  .bind-bar .depth input[type=range] { flex: 1; min-width: 80px; grid-column: auto; }
-  .bind-bar .depth output { min-width: 36px; text-align: right; color: var(--text); }
-  input[type=range] { width: 100%; grid-column: 1 / -1; accent-color: var(--accent); }
+  .row .now {
+    grid-column: 1 / -1; color: var(--mute); font-size: 10px; text-align: right;
+  }
+  .row .now output { color: var(--accent); }
+  .row input[type=range] {
+    width: 100%; grid-column: auto; accent-color: var(--accent); height: 18px;
+  }
+  .row .props {
+    display: flex; gap: 3px; align-items: center; justify-content: flex-end; min-height: 22px;
+  }
+  .row .props button {
+    padding: 2px 6px; font-size: 10px;
+  }
+  .row .props button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .row .bind-extra {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+    padding: 0 0 2px 114px;
+  }
+  .row .bind-extra[hidden] { display: none; }
+  .row .bind-extra select {
+    width: auto; min-width: 88px; padding: 2px 4px; font-size: 10px;
+  }
+  .row .bind-extra .depth {
+    display: flex; align-items: center; gap: 4px; color: var(--mute); font-size: 10px; flex: 1 1 100px;
+  }
+  .row .bind-extra .depth input[type=range] { flex: 1; min-width: 60px; }
+  .row .bind-extra .depth output { min-width: 32px; text-align: right; color: var(--text); }
   select {
     width: 100%; background: var(--panel); color: var(--text);
-    border: 1px solid var(--line); padding: 6px 8px; font: inherit;
+    border: 1px solid var(--line); padding: 4px 6px; font: inherit; font-size: 11px;
   }
   select#clip { width: auto; max-width: 220px; flex: 1 1 140px; }
   button {
@@ -118,6 +149,7 @@
       <button id="btn-still">Frame</button>
       <button id="btn-keep">Keep</button>
       <button id="btn-motion" class="primary">Loop 4s</button>
+      <button id="btn-mute" type="button" title="Mute music">Mute</button>
       <button id="btn-save">Save YAML</button>
       <span class="status" id="status">loading…</span>
     </div>
@@ -148,6 +180,15 @@ let mediaKind = "video";
 let allClips = [];
 let currentSource = "";
 let schema = [];
+let sectionAttr = {
+  Overlay: "overlay",
+  Geo: "geo",
+  Grade: "grade",
+  Flow: "flow",
+  Trails: "trails",
+  Glow: "glow",
+  Grain: "grain",
+};
 const nowOutputs = {};
 
 const AUTO_SHAPES = ["increasing", "decreasing", "wave"];
@@ -183,6 +224,32 @@ function applyResolved(resolved) {
   }
 }
 
+function sectionEnabled(group) {
+  const attr = sectionAttr[group];
+  if (!attr || !look[attr]) return true;
+  return look[attr].enabled !== false;
+}
+
+function setSectionEnabled(group, on) {
+  const attr = sectionAttr[group];
+  if (!attr) return;
+  if (!look[attr]) look[attr] = {};
+  look[attr].enabled = !!on;
+  // Mode-based sections: off clears mode so nothing is “armed” while disabled.
+  if (!on && (attr === "geo" || attr === "overlay") && "mode" in look[attr]) {
+    look[attr].mode = "none";
+  }
+}
+
+function clearModeUI(details, group) {
+  const attr = sectionAttr[group];
+  if (attr !== "geo" && attr !== "overlay") return;
+  const modeSelect = details.querySelector('.row.enum select');
+  if (modeSelect) modeSelect.value = "none";
+  const hint = details.querySelector("summary .hint");
+  if (hint) hint.textContent = "none";
+}
+
 function getPath(obj, path) {
   return path.split(".").reduce((o, k) => o[k], obj);
 }
@@ -193,6 +260,24 @@ function setPath(obj, path, value) {
   parent[last] = value;
 }
 
+const MUTE_KEY = "gale-mute";
+const btnMute = document.getElementById("btn-mute");
+
+function musicMuted() {
+  return localStorage.getItem(MUTE_KEY) === "1";
+}
+
+function applyMute(muted) {
+  motion.muted = !!muted;
+  btnMute.classList.toggle("on", !!muted);
+  btnMute.textContent = muted ? "Muted" : "Mute";
+}
+
+function setMusicMuted(muted) {
+  localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+  applyMute(muted);
+}
+
 function showStill() {
   motion.pause();
   motion.style.display = "none";
@@ -201,6 +286,7 @@ function showStill() {
 function showMotion(url) {
   still.style.display = "none";
   motion.style.display = "block";
+  motion.muted = musicMuted();
   motion.src = url;
   motion.play();
 }
@@ -285,6 +371,13 @@ function groupHint(name) {
   return "";
 }
 
+function labelCell(s) {
+  const modesText = s.modes ? String(s.modes).replaceAll("/", "/\u200b") : "";
+  const modes = modesText ? `<span class="affects">${modesText}</span>` : "";
+  const title = s.modes ? `${s.label} (${s.modes})` : s.label;
+  return `<span class="label" title="${title}">${s.label}${modes}</span>`;
+}
+
 function renderSliders(schemaIn) {
   schema = schemaIn || schema;
   slidersRoot.innerHTML = "";
@@ -292,33 +385,73 @@ function renderSliders(schemaIn) {
   for (const s of schema) {
     if (s.group !== group) {
       group = s.group;
+      const groupName = group;
       details = document.createElement("details");
-      details.className = "group";
-      details.open = isOpen(group, s.open);
-      details.addEventListener("toggle", () => setOpen(group, details.open));
+      const detailsEl = details;
+      detailsEl.className = "group";
+      detailsEl.open = isOpen(groupName, s.open);
+      const enabled = sectionEnabled(groupName);
+      detailsEl.classList.toggle("off", !enabled);
+      detailsEl.addEventListener("toggle", () => setOpen(groupName, detailsEl.open));
       const summary = document.createElement("summary");
-      const hint = groupHint(group);
-      summary.innerHTML = `<span>${group}</span>` + (hint ? `<span class="hint">${hint}</span>` : "");
-      details.appendChild(summary);
+      const hint = groupHint(groupName);
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = groupName;
+      summary.appendChild(name);
+      if (hint) {
+        const h = document.createElement("span");
+        h.className = "hint";
+        h.textContent = hint;
+        summary.appendChild(h);
+      }
+      const en = document.createElement("button");
+      en.type = "button";
+      en.className = "en" + (enabled ? " on" : "");
+      en.textContent = enabled ? "on" : "off";
+      en.title = "Enable section";
+      en.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const on = !en.classList.contains("on");
+        en.classList.toggle("on", on);
+        en.textContent = on ? "on" : "off";
+        detailsEl.classList.toggle("off", !on);
+        setSectionEnabled(groupName, on);
+        if (!on) clearModeUI(detailsEl, groupName);
+        showStill();
+        scheduleFrame();
+      });
+      summary.appendChild(en);
+      detailsEl.appendChild(summary);
       body = document.createElement("div");
       body.className = "group-body";
-      details.appendChild(body);
-      slidersRoot.appendChild(details);
+      detailsEl.appendChild(body);
+      slidersRoot.appendChild(detailsEl);
     }
     const val = getPath(look, s.path);
     if (s.type === "enum") {
-      const row = document.createElement("label");
+      const row = document.createElement("div");
       row.className = "row enum";
       const opts = (s.options || []).map((opt) => {
         const sel = opt === val ? " selected" : "";
         return `<option value="${opt}"${sel}>${opt}</option>`;
       }).join("");
-      row.innerHTML = `<span>${s.label}</span><select>${opts}</select>`;
+      row.innerHTML = `${labelCell(s)}<select>${opts}</select>`;
       row.querySelector("select").addEventListener("change", (ev) => {
         setPath(look, s.path, ev.target.value);
         const sum = row.closest("details").querySelector("summary .hint")
-          || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary").appendChild(h); return h; })();
+          || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary .name").after(h); return h; })();
         sum.textContent = ev.target.value;
+        // Picking a mode turns the section back on.
+        const attr = sectionAttr[s.group];
+        if (attr && look[attr] && ev.target.value !== "none") {
+          look[attr].enabled = true;
+          const detailsEl = row.closest("details");
+          detailsEl.classList.remove("off");
+          const enBtn = detailsEl.querySelector("summary .en");
+          if (enBtn) { enBtn.classList.add("on"); enBtn.textContent = "on"; }
+        }
         showStill();
         scheduleFrame();
       });
@@ -326,12 +459,13 @@ function renderSliders(schemaIn) {
     } else if (s.bindable) {
       body.appendChild(renderBindableRow(s, val));
     } else {
-      const row = document.createElement("label");
+      const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = `
-        <span>${s.label}</span>
-        <output>${Number(val).toFixed(3)}</output>
+        ${labelCell(s)}
         <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
+        <output>${Number(val).toFixed(3)}</output>
+        <span class="props"></span>
       `;
       const input = row.querySelector("input");
       const out = row.querySelector("output");
@@ -364,19 +498,22 @@ function renderBindableRow(s, val) {
     return `<option value="${opt}"${sel}>${opt}</option>`;
   }).join("");
   const depth = Number(binding.depth || 0);
+  const showExtra = autoOn || modOn;
 
   row.innerHTML = `
-    <span class="label">${s.label}</span>
-    <output class="base">${Number(val).toFixed(3)}</output>
-    <span class="now">now <output class="now-val">${Number(val).toFixed(3)}</output></span>
+    ${labelCell(s)}
     <input class="base-range" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
-    <div class="bind-bar">
-      <button type="button" class="auto-btn${autoOn ? " on" : ""}">Auto</button>
+    <output class="base">${Number(val).toFixed(3)}</output>
+    <span class="props">
+      <button type="button" class="auto-btn${autoOn ? " on" : ""}">A</button>
+      <button type="button" class="mod-btn${modOn ? " on" : ""}">M</button>
+    </span>
+    <span class="now">now <output class="now-val">${Number(val).toFixed(3)}</output></span>
+    <div class="bind-extra"${showExtra ? "" : " hidden"}>
       <select class="auto-shape"${autoOn ? "" : " hidden"}>${autoOpts}</select>
-      <button type="button" class="mod-btn${modOn ? " on" : ""}">Mod</button>
       <select class="mod-source"${modOn ? "" : " hidden"}>${modOpts}</select>
       <label class="depth"${modOn ? "" : " hidden"}>
-        Strength
+        Str
         <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${depth}" />
         <output>${depth.toFixed(3)}</output>
       </label>
@@ -394,6 +531,16 @@ function renderBindableRow(s, val) {
   const depthWrap = row.querySelector(".depth");
   const depthInput = depthWrap.querySelector("input");
   const depthOut = depthWrap.querySelector("output");
+  const extra = row.querySelector(".bind-extra");
+
+  function syncExtra() {
+    const a = autoBtn.classList.contains("on");
+    const m = modBtn.classList.contains("on");
+    extra.hidden = !(a || m);
+    autoShape.hidden = !a;
+    modSource.hidden = !m;
+    depthWrap.hidden = !m;
+  }
 
   function syncBinding() {
     const next = {
@@ -402,6 +549,7 @@ function renderBindableRow(s, val) {
       depth: modBtn.classList.contains("on") ? parseFloat(depthInput.value) || 0 : 0,
     };
     setBinding(s.path, next);
+    syncExtra();
     showStill();
     scheduleFrame();
   }
@@ -415,18 +563,13 @@ function renderBindableRow(s, val) {
   });
 
   autoBtn.addEventListener("click", () => {
-    const on = !autoBtn.classList.contains("on");
-    autoBtn.classList.toggle("on", on);
-    autoShape.hidden = !on;
+    autoBtn.classList.toggle("on");
     syncBinding();
   });
   autoShape.addEventListener("change", syncBinding);
 
   modBtn.addEventListener("click", () => {
-    const on = !modBtn.classList.contains("on");
-    modBtn.classList.toggle("on", on);
-    modSource.hidden = !on;
-    depthWrap.hidden = !on;
+    modBtn.classList.toggle("on");
     syncBinding();
   });
   modSource.addEventListener("change", syncBinding);
@@ -514,6 +657,15 @@ document.getElementById("btn-still").onclick = () => { showStill(); fetchFrame()
 document.getElementById("btn-keep").onclick = () => { showStill(); keepStill(); };
 document.getElementById("btn-motion").onclick = fetchMotion;
 document.getElementById("btn-save").onclick = saveLook;
+btnMute.onclick = () => setMusicMuted(!motion.muted);
+motion.addEventListener("volumechange", () => {
+  const muted = motion.muted || motion.volume === 0;
+  if ((localStorage.getItem(MUTE_KEY) === "1") === muted) return;
+  localStorage.setItem(MUTE_KEY, muted ? "1" : "0");
+  btnMute.classList.toggle("on", muted);
+  btnMute.textContent = muted ? "Muted" : "Mute";
+});
+applyMute(musicMuted());
 document.addEventListener("keydown", (ev) => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const tag = (ev.target && ev.target.tagName) || "";
@@ -523,11 +675,17 @@ document.addEventListener("keydown", (ev) => {
     keepStill();
   }
 });
-document.getElementById("btn-expand").onclick = () => {
-  document.querySelectorAll("details.group").forEach((d) => { d.open = true; setOpen(d.querySelector("summary span").textContent, true); });
+  document.getElementById("btn-expand").onclick = () => {
+  document.querySelectorAll("details.group").forEach((d) => {
+    d.open = true;
+    setOpen(d.querySelector("summary .name").textContent, true);
+  });
 };
 document.getElementById("btn-collapse").onclick = () => {
-  document.querySelectorAll("details.group").forEach((d) => { d.open = false; setOpen(d.querySelector("summary span").textContent, false); });
+  document.querySelectorAll("details.group").forEach((d) => {
+    d.open = false;
+    setOpen(d.querySelector("summary .name").textContent, false);
+  });
 };
 clipSelect.addEventListener("change", changeClip);
 document.querySelectorAll("#mode button").forEach((b) => {
@@ -539,6 +697,7 @@ timeInput.addEventListener("change", () => { showStill(); fetchFrame(); });
   const res = await fetch("/api/state");
   const data = await res.json();
   look = data.look;
+  if (data.sections) sectionAttr = data.sections;
   ensureBindings();
   applyClipMeta(data);
   renderSliders(data.schema);

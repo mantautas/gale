@@ -18,7 +18,14 @@ from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, Look, resolve_path
 from gale.timeline import Timeline
 
 UniformFn = Callable[[float], dict]
-BINDABLE_PATHS = ("geo.amount", "geo.count", "geo.scale")
+BINDABLE_PATHS = (
+    "geo.amount",
+    "geo.count",
+    "geo.scale",
+    "overlay.amount",
+    "overlay.count",
+    "overlay.scale",
+)
 
 
 class Effect(Protocol):
@@ -127,9 +134,20 @@ class Halation:
 
 
 class Stack:
-    def __init__(self, effects: list[Effect], clip_state: dict | None = None):
-        self.effects = effects
+    def __init__(
+        self,
+        steps: list[tuple[Effect, Callable[[], bool]]],
+        clip_state: dict | None = None,
+        fallback: Effect | None = None,
+    ):
+        self.steps = steps
         self._clip_state = clip_state if clip_state is not None else {"clip_u": 0.0}
+        self._fallback = fallback
+        self._last: Effect | None = fallback
+
+    @property
+    def effects(self) -> list[Effect]:
+        return [effect for effect, _ in self.steps]
 
     @property
     def clip_u(self) -> float:
@@ -143,18 +161,28 @@ class Stack:
     ) -> moderngl.Texture:
         self._clip_state["clip_u"] = float(clip_u)
         current = frame
-        for effect in self.effects:
+        self._last = None
+        for effect, enabled in self.steps:
+            if not enabled():
+                continue
             current = effect.apply(current, t)
+            self._last = effect
+        if self._last is None:
+            if self._fallback is None:
+                raise RuntimeError("stack has no enabled effects and no fallback")
+            current = self._fallback.apply(current, t)
+            self._last = self._fallback
         return current
 
     def reset(self) -> None:
-        for effect in self.effects:
+        for effect, _ in self.steps:
             reset = getattr(effect, "reset", None)
             if reset:
                 reset()
 
     def read(self) -> np.ndarray:
-        return self.effects[-1].read()
+        assert self._last is not None
+        return self._last.read()
 
 
 def resolve_bindings(
@@ -184,11 +212,9 @@ def build_look(
     params: Look | None = None,
 ) -> Stack:
     clip_state = {"clip_u": 0.0}
+    fallback = Simple(ctx, "passthrough", width, height, lambda t: {})
     if analysis_path is None:
-        return Stack(
-            [Simple(ctx, "passthrough", width, height, lambda t: {})],
-            clip_state,
-        )
+        return Stack([(fallback, lambda: True)], clip_state, fallback)
 
     tl = Timeline(analysis_path, fps)
     params = params or Look()
@@ -247,14 +273,14 @@ def build_look(
 
     def overlay(t: float) -> dict:
         o = params.overlay
-        energy = tl.audio("energy", t)
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
         return {
             "mode": int(OVERLAY_MODE_INDEX.get(o.mode, 0)),
             "mix_amt": 0.0 if o.mode == "none" else o.mix,
-            "amount": o.amount + o.amount_mod * energy,
+            "amount": resolved["overlay.amount"],
             "line_amt": o.line,
-            "scale": o.scale,
-            "count": o.count,
+            "scale": resolved["overlay.scale"],
+            "count": resolved["overlay.count"],
             "speed": o.speed,
             "bright": o.bright,
             "center": (o.center_x, o.center_y),
@@ -270,13 +296,14 @@ def build_look(
 
     return Stack(
         [
-            Simple(ctx, "grade", width, height, grade),
-            Simple(ctx, "geo", width, height, geo),
-            Simple(ctx, "curl_flow", width, height, flow),
-            Feedback(ctx, width, height, trails),
-            Halation(ctx, width, height, glow),
-            Simple(ctx, "overlay", width, height, overlay),
-            Simple(ctx, "grain", width, height, grain),
+            (Simple(ctx, "grade", width, height, grade), lambda: params.grade.enabled),
+            (Simple(ctx, "geo", width, height, geo), lambda: params.geo.enabled and params.geo.mode != "none"),
+            (Simple(ctx, "curl_flow", width, height, flow), lambda: params.flow.enabled),
+            (Feedback(ctx, width, height, trails), lambda: params.trails.enabled),
+            (Halation(ctx, width, height, glow), lambda: params.glow.enabled),
+            (Simple(ctx, "overlay", width, height, overlay), lambda: params.overlay.enabled and params.overlay.mode != "none"),
+            (Simple(ctx, "grain", width, height, grain), lambda: params.grain.enabled),
         ],
         clip_state,
+        fallback,
     )
