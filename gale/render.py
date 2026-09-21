@@ -26,13 +26,17 @@ def render_frames(
     fps: float,
     song_offset: float,
     start: float,
+    duration: float,
 ) -> int:
     n = 0
     t0 = time.time()
+    dur = max(duration, 1e-6)
     for frame in frames:
-        t = song_offset + start + n / fps
+        video_t = start + n / fps
+        t = song_offset + video_t
+        clip_u = max(0.0, min(1.0, (video_t - start) / dur))
         tex.write(np.ascontiguousarray(frame[::-1]).tobytes())
-        look.apply(tex, t)
+        look.apply(tex, t, clip_u)
         encoder.write(look.read())
         n += 1
         if n % 100 == 0:
@@ -80,6 +84,7 @@ def main() -> None:
     stack = build_look(ctx, args.analysis, info.width, info.height, info.fps, params)
     tex = make_input_texture(ctx, info.width, info.height)
 
+    clip_duration = args.duration if args.duration is not None else max(info.duration - args.start, 0.0)
     t0 = time.time()
     with Encoder(
         args.output,
@@ -100,6 +105,7 @@ def main() -> None:
             fps=info.fps,
             song_offset=args.song_offset,
             start=args.start,
+            duration=clip_duration,
         )
 
     dt = time.time() - t0

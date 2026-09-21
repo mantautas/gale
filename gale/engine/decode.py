@@ -47,6 +47,21 @@ def probe(path: str) -> VideoInfo:
     return VideoInfo(width=width, height=height, fps=fps, duration=duration)
 
 
+def decode_frame(
+    path: str,
+    width: int,
+    height: int,
+    start: float = 0.0,
+) -> np.ndarray:
+    """Decode a single frame at `start` seconds, scaled to width x height."""
+    frames = list(
+        decode_frames(path, width, height, start=start, duration=None, fps=None, max_frames=1)
+    )
+    if not frames:
+        raise ValueError(f"could not decode a frame from {path} at t={start:.3f}")
+    return frames[0]
+
+
 def decode_frames(
     path: str,
     width: int,
@@ -54,6 +69,7 @@ def decode_frames(
     start: float = 0.0,
     duration: float | None = None,
     fps: float | None = None,
+    max_frames: int | None = None,
 ) -> Iterator[np.ndarray]:
     """Yield frames as (H, W, 3) uint8 RGB arrays, top row first.
 
@@ -66,6 +82,8 @@ def decode_frames(
     cmd += ["-i", path]
     if duration is not None:
         cmd += ["-t", f"{duration:.3f}"]
+    if max_frames is not None:
+        cmd += ["-frames:v", str(max_frames)]
     vf = [f"scale={width}:{height}"]
     if fps is not None:
         vf.append(f"fps={fps:.6f}")
@@ -161,15 +179,15 @@ class Encoder:
         self.close()
 
 
-def write_jpeg(path: str, frame: np.ndarray) -> None:
-    """Encode one RGB uint8 frame to JPEG via ffmpeg."""
+def write_jpeg(path: str, frame: np.ndarray, quality: int = 3) -> None:
+    """Encode one RGB uint8 frame to JPEG via ffmpeg. quality 2–5, lower is better."""
     h, w = frame.shape[:2]
     cmd = [
         FFMPEG, "-y",
         "-f", "rawvideo", "-pix_fmt", "rgb24",
         "-s", f"{w}x{h}", "-i", "-",
         "-frames:v", "1",
-        "-q:v", "3",
+        "-q:v", str(quality),
         path,
     ]
     proc = subprocess.run(cmd, input=np.ascontiguousarray(frame).tobytes(), capture_output=True)

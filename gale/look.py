@@ -2,12 +2,15 @@
 
 `*_mod` fields are the extra amount added when the matching audio
 feature is at 1.0. Set a mod to 0 to make that effect static.
+
+`bindings` drive Auto/Mod for selected paths (geo.amount, geo.count, geo.scale).
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+import math
 
 import yaml
 
@@ -36,8 +39,12 @@ OVERLAY_MODES = [
 ]
 OVERLAY_MODE_INDEX = {name: i for i, name in enumerate(OVERLAY_MODES)}
 
+AUTOMATION_MODES = ["none", "increasing", "decreasing", "wave"]
+MODULATE_SOURCES = ["none", "rms", "low", "mid", "high", "energy", "beat", "onset"]
+
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
 # `open` on the first row of a group is the default collapsed state.
+# `bindable` marks rows that get Auto/Mod controls.
 SLIDERS = [
     {"group": "Overlay", "open": True, "path": "overlay.mode", "label": "Mode", "type": "enum", "options": OVERLAY_MODES},
     {"group": "Overlay", "path": "overlay.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
@@ -52,10 +59,33 @@ SLIDERS = [
     {"group": "Overlay", "path": "overlay.center_y", "label": "Center Y", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "open": True, "path": "geo.mode", "label": "Mode", "type": "enum", "options": GEO_MODES},
     {"group": "Geo", "path": "geo.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
-    {"group": "Geo", "path": "geo.amount", "label": "Amount", "min": 0.0, "max": 0.8, "step": 0.01},
-    {"group": "Geo", "path": "geo.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 0.8, "step": 0.01},
-    {"group": "Geo", "path": "geo.count", "label": "Count (slices/kaleido/tiles)", "min": 2.0, "max": 36.0, "step": 1.0},
-    {"group": "Geo", "path": "geo.scale", "label": "Scale (voronoi/fold/hex/droste)", "min": 0.5, "max": 12.0, "step": 0.1},
+    {
+        "group": "Geo",
+        "path": "geo.amount",
+        "label": "Amount",
+        "min": 0.0,
+        "max": 0.8,
+        "step": 0.01,
+        "bindable": True,
+    },
+    {
+        "group": "Geo",
+        "path": "geo.count",
+        "label": "Count (slices/kaleido/tiles)",
+        "min": 2.0,
+        "max": 36.0,
+        "step": 1.0,
+        "bindable": True,
+    },
+    {
+        "group": "Geo",
+        "path": "geo.scale",
+        "label": "Scale (voronoi/fold/hex/droste)",
+        "min": 0.5,
+        "max": 12.0,
+        "step": 0.1,
+        "bindable": True,
+    },
     {"group": "Geo", "path": "geo.line", "label": "Cell lines", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "path": "geo.speed", "label": "Spin / drift", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "Geo", "path": "geo.center_x", "label": "Center X", "min": 0.0, "max": 1.0, "step": 0.01},
@@ -108,7 +138,7 @@ class Geo:
     mode: str = "none"
     mix: float = 1.0
     amount: float = 0.18
-    amount_mod: float = 0.12
+    amount_mod: float = 0.0
     count: float = 8.0
     scale: float = 4.0
     line: float = 0.12
@@ -163,6 +193,113 @@ class Grain:
 
 
 @dataclass
+class Binding:
+    path: str
+    automation: str = "none"
+    modulate: str = "none"
+    depth: float = 0.0
+
+
+def _binding_from_dict(data: dict) -> Binding | None:
+    path = data.get("path")
+    if not path:
+        return None
+    automation = data.get("automation", "none")
+    modulate = data.get("modulate", "none")
+    if automation not in AUTOMATION_MODES:
+        automation = "none"
+    if modulate not in MODULATE_SOURCES:
+        modulate = "none"
+    return Binding(
+        path=str(path),
+        automation=automation,
+        modulate=modulate,
+        depth=float(data.get("depth", 0.0)),
+    )
+
+
+def auto_shape(automation: str, base: float, clip_u: float, lo: float, hi: float) -> float:
+    """Clip-local automation shape. u in [0, 1]."""
+    u = max(0.0, min(1.0, clip_u))
+    if automation == "increasing":
+        return base + (hi - base) * u
+    if automation == "decreasing":
+        return base + (lo - base) * u
+    if automation == "wave":
+        span = hi - lo
+        if span <= 0:
+            return base
+        # One sine cycle; phase so u=0 lands on the parked slider.
+        target = max(lo, min(hi, base))
+        # value = lo + span * (0.5 + 0.5 * sin(2πu + φ))
+        # at u=0: 0.5 + 0.5*sin(φ) = (base-lo)/span
+        norm = (target - lo) / span
+        sin_phi = max(-1.0, min(1.0, 2.0 * norm - 1.0))
+        phi = math.asin(sin_phi)
+        return lo + span * (0.5 + 0.5 * math.sin(2.0 * math.pi * u + phi))
+    return base
+
+
+def slider_range(path: str) -> tuple[float, float]:
+    """min/max for a bindable path from SLIDERS schema."""
+    for s in SLIDERS:
+        if s.get("path") == path and "min" in s and "max" in s:
+            return float(s["min"]), float(s["max"])
+    raise KeyError(f"no slider range for {path}")
+
+
+def get_path_value(look: "Look", path: str) -> float:
+    cur: object = look
+    for key in path.split("."):
+        cur = getattr(cur, key)
+    return float(cur)
+
+
+def resolve_path(
+    look: "Look",
+    path: str,
+    audio: float,
+    clip_u: float,
+) -> float:
+    """Resolve one bindable path: auto_shape + depth × audio, clamped."""
+    lo, hi = slider_range(path)
+    base = get_path_value(look, path)
+    return resolve_bound(base, look.binding_for(path), audio, clip_u, lo, hi)
+
+
+def resolve_bound(
+    base: float,
+    binding: Binding | None,
+    audio: float,
+    clip_u: float,
+    lo: float,
+    hi: float,
+) -> float:
+    """output = auto_shape + depth × audio, clamped to [lo, hi]."""
+    automation = binding.automation if binding else "none"
+    modulate = binding.modulate if binding else "none"
+    depth = binding.depth if binding else 0.0
+    shaped = auto_shape(automation, base, clip_u, lo, hi)
+    if modulate != "none" and depth:
+        shaped = shaped + depth * audio
+    return max(lo, min(hi, shaped))
+
+
+def _migrate_geo_amount_mod(geo_data: dict, bindings: list[Binding]) -> list[Binding]:
+    """Old geo.amount_mod → binding modulate:energy if no binding yet."""
+    if any(b.path == "geo.amount" for b in bindings):
+        return bindings
+    amount_mod = float(geo_data.get("amount_mod") or 0.0)
+    if amount_mod == 0.0:
+        return bindings
+    bindings = list(bindings)
+    bindings.append(
+        Binding(path="geo.amount", automation="none", modulate="energy", depth=amount_mod)
+    )
+    return bindings
+
+
+@dataclass
 class Look:
     overlay: Overlay = field(default_factory=Overlay)
     geo: Geo = field(default_factory=Geo)
@@ -171,12 +308,31 @@ class Look:
     trails: Trails = field(default_factory=Trails)
     glow: Glow = field(default_factory=Glow)
     grain: Grain = field(default_factory=Grain)
+    bindings: list[Binding] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        # Drop inert bindings so YAML stays clean.
+        data["bindings"] = [
+            b
+            for b in data["bindings"]
+            if b.get("automation", "none") != "none" or b.get("modulate", "none") != "none"
+        ]
+        return data
+
+    def binding_for(self, path: str) -> Binding | None:
+        for b in self.bindings:
+            if b.path == path:
+                return b
+        return None
+
+    def set_binding(self, binding: Binding) -> None:
+        self.bindings = [b for b in self.bindings if b.path != binding.path]
+        if binding.automation != "none" or binding.modulate != "none":
+            self.bindings.append(binding)
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "Look":
+    def from_dict(cls, data: dict | None, *, migrate: bool = False) -> "Look":
         data = data or {}
         geo_data = dict(data.get("geo") or {})
         if geo_data.get("mode") not in GEO_MODE_INDEX:
@@ -184,6 +340,14 @@ class Look:
         overlay_data = dict(data.get("overlay") or {})
         if overlay_data.get("mode") not in OVERLAY_MODE_INDEX:
             overlay_data["mode"] = "none"
+        bindings: list[Binding] = []
+        for raw in data.get("bindings") or []:
+            if isinstance(raw, dict):
+                b = _binding_from_dict(raw)
+                if b is not None:
+                    bindings.append(b)
+        if migrate:
+            bindings = _migrate_geo_amount_mod(geo_data, bindings)
         return cls(
             overlay=_take(Overlay, overlay_data),
             geo=_take(Geo, geo_data),
@@ -192,12 +356,13 @@ class Look:
             trails=_take(Trails, data.get("trails")),
             glow=_take(Glow, data.get("glow")),
             grain=_take(Grain, data.get("grain")),
+            bindings=bindings,
         )
 
     @classmethod
     def load(cls, path: str | Path) -> "Look":
         raw = yaml.safe_load(Path(path).read_text()) or {}
-        return cls.from_dict(raw)
+        return cls.from_dict(raw, migrate=True)
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -214,3 +379,4 @@ class Look:
         self.trails = other.trails
         self.glow = other.glow
         self.grain = other.grain
+        self.bindings = other.bindings

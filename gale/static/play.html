@@ -14,14 +14,26 @@
     --accent: #c45c28;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
     font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .wrap { display: grid; grid-template-columns: minmax(280px, 42vw) 1fr; height: 100%; }
-  .stage { display: flex; flex-direction: column; background: #0b0a09; border-right: 1px solid var(--line); }
-  .stage img, .stage video { width: 100%; height: auto; display: block; background: #000; }
-  .stage .bar { padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  .wrap { display: grid; grid-template-columns: minmax(260px, 36vw) 1fr; height: 100%; min-height: 0; }
+  .stage { display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    background: #0b0a09; border-right: 1px solid var(--line); }
+  .stage .view {
+    flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  .stage img, .stage video {
+    max-width: 100%; max-height: 100%; width: auto; height: auto;
+    object-fit: contain; display: block; background: #000;
+  }
+  .stage .bar { flex-shrink: 0; padding: 10px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     border-top: 1px solid var(--line); }
-  .side { overflow: auto; padding: 16px 18px 40px; }
+  .side { min-height: 0; overflow: auto; padding: 16px 18px 40px; }
+  body[data-kind="photo"] #btn-motion { display: none; }
+  .mode { display: flex; gap: 0; border: 1px solid var(--line); }
+  .mode button { border: 0; padding: 6px 10px; }
+  .mode button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .side-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
   h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--mute); margin: 0; }
@@ -42,6 +54,33 @@
   label.row.enum { grid-template-columns: 1fr; }
   label.row span { color: var(--mute); }
   label.row output { text-align: right; color: var(--text); }
+  .row.bindable {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 6px 8px; align-items: center;
+    margin: 0 0 10px;
+  }
+  .row.bindable > .label { color: var(--mute); }
+  .row.bindable > .base { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .row.bindable > .now {
+    color: var(--mute); font-size: 11px; white-space: nowrap;
+  }
+  .row.bindable > .now output { color: var(--accent); }
+  .row.bindable > input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+  .row.bindable > .bind-bar {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  }
+  .bind-bar button {
+    padding: 3px 8px; font-size: 11px;
+  }
+  .bind-bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bind-bar select {
+    width: auto; min-width: 110px; padding: 3px 6px; font-size: 11px;
+  }
+  .bind-bar .depth {
+    display: flex; align-items: center; gap: 6px; color: var(--mute); font-size: 11px;
+    flex: 1 1 140px;
+  }
+  .bind-bar .depth input[type=range] { flex: 1; min-width: 80px; grid-column: auto; }
+  .bind-bar .depth output { min-width: 36px; text-align: right; color: var(--text); }
   input[type=range] { width: 100%; grid-column: 1 / -1; accent-color: var(--accent); }
   select {
     width: 100%; background: var(--panel); color: var(--text);
@@ -65,10 +104,16 @@
 <body>
 <div class="wrap">
   <div class="stage">
-    <img id="still" alt="preview" />
-    <video id="motion" controls loop playsinline style="display:none"></video>
+    <div class="view">
+      <img id="still" alt="preview" />
+      <video id="motion" controls loop playsinline style="display:none"></video>
+    </div>
     <div class="bar">
-      <select id="clip" title="source clip"></select>
+      <div class="mode" id="mode">
+        <button type="button" data-kind="video" class="on">Video</button>
+        <button type="button" data-kind="photo">Photo</button>
+      </div>
+      <select id="clip" title="source"></select>
       <label>t <input id="time" type="number" min="0" step="0.1" value="2" /></label>
       <button id="btn-still">Frame</button>
       <button id="btn-keep">Keep</button>
@@ -99,6 +144,44 @@ const clipSelect = document.getElementById("clip");
 let look = {};
 let timer = null;
 let previewing = false;
+let mediaKind = "video";
+let allClips = [];
+let currentSource = "";
+let schema = [];
+const nowOutputs = {};
+
+const AUTO_SHAPES = ["increasing", "decreasing", "wave"];
+const MOD_SOURCES = ["rms", "low", "mid", "high", "energy", "beat", "onset"];
+
+function ensureBindings() {
+  if (!Array.isArray(look.bindings)) look.bindings = [];
+}
+
+function getBinding(path) {
+  ensureBindings();
+  return look.bindings.find((b) => b.path === path) || null;
+}
+
+function setBinding(path, patch) {
+  ensureBindings();
+  let b = look.bindings.find((x) => x.path === path);
+  if (!b) {
+    b = { path, automation: "none", modulate: "none", depth: 0 };
+    look.bindings.push(b);
+  }
+  Object.assign(b, patch);
+  if (b.automation === "none" && b.modulate === "none") {
+    look.bindings = look.bindings.filter((x) => x.path !== path);
+  }
+}
+
+function applyResolved(resolved) {
+  if (!resolved) return;
+  for (const [path, value] of Object.entries(resolved)) {
+    const el = nowOutputs[path];
+    if (el) el.textContent = Number(value).toFixed(3);
+  }
+}
 
 function getPath(obj, path) {
   return path.split(".").reduce((o, k) => o[k], obj);
@@ -122,18 +205,46 @@ function showMotion(url) {
   motion.play();
 }
 
-function fillClips(clips, source) {
-  clipSelect.innerHTML = (clips || []).map((c) => {
+function fillClips(clips, source, kind) {
+  const filtered = (clips || []).filter((c) => !kind || c.kind === kind);
+  clipSelect.innerHTML = filtered.map((c) => {
     const sel = c.path === source ? " selected" : "";
     return `<option value="${c.path}"${sel}>${c.name}</option>`;
   }).join("");
 }
 
 function applyClipMeta(data) {
-  timeInput.max = data.duration.toFixed(1);
+  allClips = data.clips || [];
+  mediaKind = data.kind || "video";
+  currentSource = data.source || "";
+  document.body.dataset.kind = mediaKind;
+  document.querySelectorAll("#mode button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.kind === mediaKind);
+  });
+  timeInput.max = Math.max(data.duration, 0.1).toFixed(1);
   const t = parseFloat(timeInput.value) || 0;
   if (t > data.duration) timeInput.value = (data.duration * 0.2).toFixed(1);
-  fillClips(data.clips, data.source);
+  fillClips(allClips, data.source, mediaKind);
+}
+
+function setMediaKind(kind) {
+  if (kind === mediaKind) return;
+  mediaKind = kind;
+  document.body.dataset.kind = kind;
+  document.querySelectorAll("#mode button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.kind === kind);
+  });
+  fillClips(allClips, currentSource, kind);
+  const options = [...clipSelect.options].map((o) => o.value);
+  if (!options.length) {
+    status.textContent = "no " + kind + "s in assets/";
+    return;
+  }
+  if (!options.includes(clipSelect.value)) {
+    clipSelect.value = options[0];
+  }
+  if (clipSelect.value === currentSource) return;
+  changeClip();
 }
 
 async function changeClip() {
@@ -174,7 +285,8 @@ function groupHint(name) {
   return "";
 }
 
-function renderSliders(schema) {
+function renderSliders(schemaIn) {
+  schema = schemaIn || schema;
   slidersRoot.innerHTML = "";
   let group = null, body = null, details = null;
   for (const s of schema) {
@@ -194,8 +306,8 @@ function renderSliders(schema) {
       slidersRoot.appendChild(details);
     }
     const val = getPath(look, s.path);
-    const row = document.createElement("label");
     if (s.type === "enum") {
+      const row = document.createElement("label");
       row.className = "row enum";
       const opts = (s.options || []).map((opt) => {
         const sel = opt === val ? " selected" : "";
@@ -210,7 +322,11 @@ function renderSliders(schema) {
         showStill();
         scheduleFrame();
       });
+      body.appendChild(row);
+    } else if (s.bindable) {
+      body.appendChild(renderBindableRow(s, val));
     } else {
+      const row = document.createElement("label");
       row.className = "row";
       row.innerHTML = `
         <span>${s.label}</span>
@@ -226,9 +342,100 @@ function renderSliders(schema) {
         showStill();
         scheduleFrame();
       });
+      body.appendChild(row);
     }
-    body.appendChild(row);
   }
+}
+
+function renderBindableRow(s, val) {
+  const binding = getBinding(s.path) || { automation: "none", modulate: "none", depth: 0 };
+  const autoOn = binding.automation && binding.automation !== "none";
+  const modOn = binding.modulate && binding.modulate !== "none";
+  const row = document.createElement("div");
+  row.className = "row bindable";
+  row.dataset.path = s.path;
+
+  const autoOpts = AUTO_SHAPES.map((opt) => {
+    const sel = opt === (autoOn ? binding.automation : "increasing") ? " selected" : "";
+    return `<option value="${opt}"${sel}>${opt}</option>`;
+  }).join("");
+  const modOpts = MOD_SOURCES.map((opt) => {
+    const sel = opt === (modOn ? binding.modulate : "energy") ? " selected" : "";
+    return `<option value="${opt}"${sel}>${opt}</option>`;
+  }).join("");
+  const depth = Number(binding.depth || 0);
+
+  row.innerHTML = `
+    <span class="label">${s.label}</span>
+    <output class="base">${Number(val).toFixed(3)}</output>
+    <span class="now">now <output class="now-val">${Number(val).toFixed(3)}</output></span>
+    <input class="base-range" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${val}" />
+    <div class="bind-bar">
+      <button type="button" class="auto-btn${autoOn ? " on" : ""}">Auto</button>
+      <select class="auto-shape"${autoOn ? "" : " hidden"}>${autoOpts}</select>
+      <button type="button" class="mod-btn${modOn ? " on" : ""}">Mod</button>
+      <select class="mod-source"${modOn ? "" : " hidden"}>${modOpts}</select>
+      <label class="depth"${modOn ? "" : " hidden"}>
+        Strength
+        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${depth}" />
+        <output>${depth.toFixed(3)}</output>
+      </label>
+    </div>
+  `;
+
+  const baseOut = row.querySelector(".base");
+  const nowOut = row.querySelector(".now-val");
+  nowOutputs[s.path] = nowOut;
+  const baseRange = row.querySelector(".base-range");
+  const autoBtn = row.querySelector(".auto-btn");
+  const autoShape = row.querySelector(".auto-shape");
+  const modBtn = row.querySelector(".mod-btn");
+  const modSource = row.querySelector(".mod-source");
+  const depthWrap = row.querySelector(".depth");
+  const depthInput = depthWrap.querySelector("input");
+  const depthOut = depthWrap.querySelector("output");
+
+  function syncBinding() {
+    const next = {
+      automation: autoBtn.classList.contains("on") ? autoShape.value : "none",
+      modulate: modBtn.classList.contains("on") ? modSource.value : "none",
+      depth: modBtn.classList.contains("on") ? parseFloat(depthInput.value) || 0 : 0,
+    };
+    setBinding(s.path, next);
+    showStill();
+    scheduleFrame();
+  }
+
+  baseRange.addEventListener("input", () => {
+    const v = parseFloat(baseRange.value);
+    baseOut.textContent = v.toFixed(3);
+    setPath(look, s.path, v);
+    showStill();
+    scheduleFrame();
+  });
+
+  autoBtn.addEventListener("click", () => {
+    const on = !autoBtn.classList.contains("on");
+    autoBtn.classList.toggle("on", on);
+    autoShape.hidden = !on;
+    syncBinding();
+  });
+  autoShape.addEventListener("change", syncBinding);
+
+  modBtn.addEventListener("click", () => {
+    const on = !modBtn.classList.contains("on");
+    modBtn.classList.toggle("on", on);
+    modSource.hidden = !on;
+    depthWrap.hidden = !on;
+    syncBinding();
+  });
+  modSource.addEventListener("change", syncBinding);
+  depthInput.addEventListener("input", () => {
+    depthOut.textContent = parseFloat(depthInput.value).toFixed(3);
+    syncBinding();
+  });
+
+  return row;
 }
 
 function scheduleFrame() {
@@ -247,6 +454,10 @@ async function fetchFrame() {
   if (!res.ok) {
     status.textContent = await res.text();
     return;
+  }
+  const resolvedHeader = res.headers.get("X-Gale-Resolved");
+  if (resolvedHeader) {
+    try { applyResolved(JSON.parse(resolvedHeader)); } catch (_) {}
   }
   const blob = await res.blob();
   still.src = URL.createObjectURL(blob);
@@ -294,9 +505,9 @@ async function keepStill() {
     return;
   }
   const data = await res.json();
-  still.src = "/media/frame.jpg?t=" + Date.now();
   showStill();
-  status.textContent = "kept " + data.name;
+  const size = data.width && data.height ? " " + data.width + "×" + data.height : "";
+  status.textContent = "kept " + data.name + size;
 }
 
 document.getElementById("btn-still").onclick = () => { showStill(); fetchFrame(); };
@@ -319,12 +530,16 @@ document.getElementById("btn-collapse").onclick = () => {
   document.querySelectorAll("details.group").forEach((d) => { d.open = false; setOpen(d.querySelector("summary span").textContent, false); });
 };
 clipSelect.addEventListener("change", changeClip);
+document.querySelectorAll("#mode button").forEach((b) => {
+  b.addEventListener("click", () => setMediaKind(b.dataset.kind));
+});
 timeInput.addEventListener("change", () => { showStill(); fetchFrame(); });
 
 (async () => {
   const res = await fetch("/api/state");
   const data = await res.json();
   look = data.look;
+  ensureBindings();
   applyClipMeta(data);
   renderSliders(data.schema);
   fetchFrame();

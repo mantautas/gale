@@ -14,10 +14,11 @@ import numpy as np
 
 from gale.effects import load_effect
 from gale.engine.gl import ShaderPass
-from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, Look
+from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, Look, resolve_path
 from gale.timeline import Timeline
 
 UniformFn = Callable[[float], dict]
+BINDABLE_PATHS = ("geo.amount", "geo.count", "geo.scale")
 
 
 class Effect(Protocol):
@@ -126,10 +127,21 @@ class Halation:
 
 
 class Stack:
-    def __init__(self, effects: list[Effect]):
+    def __init__(self, effects: list[Effect], clip_state: dict | None = None):
         self.effects = effects
+        self._clip_state = clip_state if clip_state is not None else {"clip_u": 0.0}
 
-    def apply(self, frame: moderngl.Texture, t: float) -> moderngl.Texture:
+    @property
+    def clip_u(self) -> float:
+        return float(self._clip_state.get("clip_u", 0.0))
+
+    def apply(
+        self,
+        frame: moderngl.Texture,
+        t: float,
+        clip_u: float = 0.0,
+    ) -> moderngl.Texture:
+        self._clip_state["clip_u"] = float(clip_u)
         current = frame
         for effect in self.effects:
             current = effect.apply(current, t)
@@ -145,6 +157,24 @@ class Stack:
         return self.effects[-1].read()
 
 
+def resolve_bindings(
+    params: Look,
+    tl: Timeline | None,
+    song_t: float,
+    clip_u: float,
+    paths: tuple[str, ...] = BINDABLE_PATHS,
+) -> dict[str, float]:
+    """Same formula Frame / Keep / Loop / gale-render use for bindable params."""
+    out: dict[str, float] = {}
+    for path in paths:
+        binding = params.binding_for(path)
+        audio = 0.0
+        if tl is not None and binding is not None and binding.modulate != "none":
+            audio = tl.audio(binding.modulate, song_t)
+        out[path] = resolve_path(params, path, audio, clip_u)
+    return out
+
+
 def build_look(
     ctx: moderngl.Context,
     analysis_path: str | None,
@@ -153,8 +183,12 @@ def build_look(
     fps: float,
     params: Look | None = None,
 ) -> Stack:
+    clip_state = {"clip_u": 0.0}
     if analysis_path is None:
-        return Stack([Simple(ctx, "passthrough", width, height, lambda t: {})])
+        return Stack(
+            [Simple(ctx, "passthrough", width, height, lambda t: {})],
+            clip_state,
+        )
 
     tl = Timeline(analysis_path, fps)
     params = params or Look()
@@ -171,20 +205,20 @@ def build_look(
 
     def geo(t: float) -> dict:
         g = params.geo
-        energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
         return {
             "mode": int(GEO_MODE_INDEX.get(g.mode, 0)),
             "mix_amt": 0.0 if g.mode == "none" else g.mix,
-            "amount": g.amount + g.amount_mod * energy,
-            "scale": g.scale,
-            "count": g.count,
+            "amount": resolved["geo.amount"],
+            "scale": resolved["geo.scale"],
+            "count": resolved["geo.count"],
             "line_amt": g.line,
             "speed": g.speed,
             "center": (g.center_x, g.center_y),
         }
 
     def flow(t: float) -> dict:
-        energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
+        energy = tl.audio("energy", t)
         f = params.flow
         return {
             "amount": f.amount + f.amount_mod * energy,
@@ -213,7 +247,7 @@ def build_look(
 
     def overlay(t: float) -> dict:
         o = params.overlay
-        energy = 0.6 * tl.value("low", t) + 0.4 * tl.value("mid", t)
+        energy = tl.audio("energy", t)
         return {
             "mode": int(OVERLAY_MODE_INDEX.get(o.mode, 0)),
             "mix_amt": 0.0 if o.mode == "none" else o.mix,
@@ -243,5 +277,6 @@ def build_look(
             Halation(ctx, width, height, glow),
             Simple(ctx, "overlay", width, height, overlay),
             Simple(ctx, "grain", width, height, grain),
-        ]
+        ],
+        clip_state,
     )

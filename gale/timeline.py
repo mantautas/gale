@@ -76,3 +76,17 @@ class Timeline:
             return 0.0
         times, strengths = self._onsets_by_band[band]
         return self._decay_after(times, strengths, t, tau)
+
+    def audio(self, source: str, t: float) -> float:
+        """0..1 driver for modulation. Unknown / none → 0."""
+        if source in (None, "", "none"):
+            return 0.0
+        if source == "energy":
+            return 0.6 * self.value("low", t) + 0.4 * self.value("mid", t)
+        if source == "beat":
+            return self.beat_pulse(t)
+        if source == "onset":
+            return self.onset_pulse(t)
+        if source in self._curves:
+            return self.value(source, t)
+        return 0.0
