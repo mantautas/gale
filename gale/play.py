@@ -25,13 +25,44 @@ from gale.stack import build_look
 STATIC = Path(__file__).parent / "static"
 OUT_DIR = Path("out")
 STILLS_DIR = OUT_DIR / "stills"
+ASSETS_DIR = Path("assets")
 FRAME_PATH = OUT_DIR / "play_frame.jpg"
 PREVIEW_PATH = OUT_DIR / "play_preview.mp4"
 HOST, PORT = "127.0.0.1", 8765
+VIDEO_EXTS = {".mov", ".mp4", ".m4v", ".mkv", ".avi", ".webm", ".mpg", ".mpeg"}
 
 
 def _even(n: int) -> int:
     return n - (n % 2)
+
+
+def list_clips() -> list[dict]:
+    if not ASSETS_DIR.exists():
+        return []
+    clips = []
+    for p in sorted(ASSETS_DIR.rglob("*")):
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+            rel = p.relative_to(ASSETS_DIR)
+            clips.append({"name": str(rel), "path": str(p)})
+    return clips
+
+
+def resolve_clip(name_or_path: str) -> Path:
+    """Only allow video files inside assets/."""
+    raw = Path(name_or_path)
+    candidates = [raw]
+    if not raw.is_absolute():
+        candidates.append(ASSETS_DIR / raw)
+        candidates.append(ASSETS_DIR / raw.name)
+    assets_root = ASSETS_DIR.resolve()
+    for cand in candidates:
+        if not cand.exists():
+            continue
+        resolved = cand.resolve()
+        if assets_root == resolved.parent or assets_root in resolved.parents:
+            if resolved.suffix.lower() in VIDEO_EXTS:
+                return resolved
+    raise ValueError(f"clip not found in assets/: {name_or_path}")
 
 
 class Session:
@@ -39,48 +70,94 @@ class Session:
         self.args = args
         self.look_path = Path(args.look)
         self.params = Look.load(self.look_path) if self.look_path.exists() else Look()
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        STILLS_DIR.mkdir(parents=True, exist_ok=True)
-
-        info = probe(args.input)
-        self.src_fps = info.fps
-        self.preview_fps = min(30.0, info.fps)
-        self.width = _even(args.width)
-        self.height = _even(int(args.width * info.height / info.width))
-        self.duration = args.duration or info.duration
+        self.preview_width = args.width
         self.song_offset = args.song_offset
         self.audio = args.audio
-        self.video_start = args.start
+        self.analysis = args.analysis
+        self.ctx = None
+        self.stack = None
+        self.tex = None
+        self.frames: list = []
+        self.input = ""
+        self.width = 0
+        self.height = 0
+        self.preview_fps = 30.0
+        self.src_fps = 30.0
+        self.duration = 0.0
+        self.video_start = 0.0
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        STILLS_DIR.mkdir(parents=True, exist_ok=True)
+        self.ctx = create_context()
+        self.load_source(args.input, start=args.start, duration=args.duration)
 
+    def load_source(
+        self,
+        path: str,
+        start: float = 0.0,
+        duration: float | None = None,
+    ) -> None:
+        path = str(resolve_clip(path))
+        info = probe(path)
+        width = _even(self.preview_width)
+        height = _even(int(self.preview_width * info.height / info.width))
+        preview_fps = min(30.0, info.fps)
+        clip_duration = duration if duration is not None else info.duration
         print(
-            f"decoding preview {self.width}x{self.height} @ {self.preview_fps:.0f} fps…",
+            f"decoding {path} {width}x{height} @ {preview_fps:.0f} fps…",
             flush=True,
         )
-        self.frames = [
+        frames = [
             np.copy(f)
             for f in decode_frames(
-                args.input,
-                self.width,
-                self.height,
-                start=args.start,
-                duration=self.duration,
-                fps=self.preview_fps,
+                path, width, height, start=start, duration=clip_duration, fps=preview_fps
             )
         ]
-        if not self.frames:
-            raise SystemExit("no frames decoded for preview")
-        print(f"cached {len(self.frames)} frames", flush=True)
+        if not frames:
+            raise ValueError(f"no frames decoded from {path}")
 
-        self.ctx = create_context()
-        self.stack = build_look(
-            self.ctx,
-            args.analysis,
-            self.width,
-            self.height,
-            self.preview_fps,
-            self.params,
+        rebuild = (
+            self.stack is None
+            or (width, height) != (self.width, self.height)
+            or preview_fps != self.preview_fps
         )
-        self.tex = make_input_texture(self.ctx, self.width, self.height)
+        self.input = path
+        self.frames = frames
+        self.src_fps = info.fps
+        self.preview_fps = preview_fps
+        self.width = width
+        self.height = height
+        self.duration = clip_duration
+        self.video_start = start
+        if rebuild:
+            self.stack = build_look(
+                self.ctx,
+                self.analysis,
+                self.width,
+                self.height,
+                self.preview_fps,
+                self.params,
+            )
+            self.tex = make_input_texture(self.ctx, self.width, self.height)
+        else:
+            self.stack.reset()
+        print(f"cached {len(self.frames)} frames from {Path(path).name}", flush=True)
+
+    def clip_state(self) -> dict:
+        current = Path(self.input).resolve()
+        clips = list_clips()
+        current_path = None
+        for c in clips:
+            if Path(c["path"]).resolve() == current:
+                current_path = c["path"]
+                break
+        if current_path is None and self.input:
+            clips.insert(0, {"name": Path(self.input).name, "path": self.input})
+            current_path = self.input
+        return {
+            "clips": clips,
+            "source": current_path,
+            "duration": self.duration,
+        }
 
     def _apply_range(self, start_i: int, end_i: int) -> np.ndarray:
         """Run frames [start_i, end_i] inclusive through the stack; return last image."""
@@ -175,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = {
                 "look": SESSION.params.to_dict(),
                 "schema": SLIDERS,
-                "duration": SESSION.duration,
+                **SESSION.clip_state(),
             }
             self._send(200, json.dumps(payload).encode(), "application/json")
             return
@@ -209,6 +286,15 @@ class Handler(BaseHTTPRequestHandler):
                 SESSION.render_preview(float(body.get("t", 0)), float(body.get("duration", 4)))
                 self._send(200, b'{"ok":true}', "application/json")
                 return
+            if path == "/api/source":
+                src = body.get("path") or body.get("source")
+                if not src:
+                    self._send(400, b"missing path", "text/plain")
+                    return
+                SESSION.load_source(src)
+                payload = {"ok": True, **SESSION.clip_state()}
+                self._send(200, json.dumps(payload).encode(), "application/json")
+                return
             if path == "/api/look":
                 SESSION.params.replace(body)
                 SESSION.params.save(SESSION.look_path)
@@ -223,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     global SESSION
     p = argparse.ArgumentParser(description="gale look editor")
-    p.add_argument("input", help="input video file")
+    p.add_argument("input", nargs="?", default=None, help="input video (default: first clip in assets/)")
     p.add_argument("--analysis", default="out/analysis.json")
     p.add_argument("--look", default="configs/look.yaml")
     p.add_argument("--start", type=float, default=0.0)
@@ -236,6 +322,11 @@ def main() -> None:
 
     analysis = args.analysis if Path(args.analysis).exists() else None
     args.analysis = analysis
+    if not args.input:
+        clips = list_clips()
+        if not clips:
+            raise SystemExit("no input video and nothing in assets/")
+        args.input = clips[0]["path"]
     SESSION = Session(args)
 
     httpd = HTTPServer((HOST, args.port), Handler)

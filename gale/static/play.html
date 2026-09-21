@@ -47,6 +47,7 @@
     width: 100%; background: var(--panel); color: var(--text);
     border: 1px solid var(--line); padding: 6px 8px; font: inherit;
   }
+  select#clip { width: auto; max-width: 220px; flex: 1 1 140px; }
   button {
     background: var(--panel); color: var(--text); border: 1px solid var(--line);
     padding: 6px 12px; font: inherit; cursor: pointer;
@@ -67,6 +68,7 @@
     <img id="still" alt="preview" />
     <video id="motion" controls loop playsinline style="display:none"></video>
     <div class="bar">
+      <select id="clip" title="source clip"></select>
       <label>t <input id="time" type="number" min="0" step="0.1" value="2" /></label>
       <button id="btn-still">Frame</button>
       <button id="btn-keep">Keep</button>
@@ -92,6 +94,7 @@ const motion = document.getElementById("motion");
 const status = document.getElementById("status");
 const timeInput = document.getElementById("time");
 const slidersRoot = document.getElementById("sliders");
+const clipSelect = document.getElementById("clip");
 
 let look = {};
 let timer = null;
@@ -117,6 +120,41 @@ function showMotion(url) {
   motion.style.display = "block";
   motion.src = url;
   motion.play();
+}
+
+function fillClips(clips, source) {
+  clipSelect.innerHTML = (clips || []).map((c) => {
+    const sel = c.path === source ? " selected" : "";
+    return `<option value="${c.path}"${sel}>${c.name}</option>`;
+  }).join("");
+}
+
+function applyClipMeta(data) {
+  timeInput.max = data.duration.toFixed(1);
+  const t = parseFloat(timeInput.value) || 0;
+  if (t > data.duration) timeInput.value = (data.duration * 0.2).toFixed(1);
+  fillClips(data.clips, data.source);
+}
+
+async function changeClip() {
+  const path = clipSelect.value;
+  status.textContent = "loading clip…";
+  clipSelect.disabled = true;
+  const res = await fetch("/api/source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, look }),
+  });
+  clipSelect.disabled = false;
+  if (!res.ok) {
+    status.textContent = await res.text();
+    return;
+  }
+  const data = await res.json();
+  applyClipMeta(data);
+  showStill();
+  fetchFrame();
+  status.textContent = data.source.split("/").pop();
 }
 
 function storageKey(name) { return "gale-open-" + name; }
@@ -280,13 +318,14 @@ document.getElementById("btn-expand").onclick = () => {
 document.getElementById("btn-collapse").onclick = () => {
   document.querySelectorAll("details.group").forEach((d) => { d.open = false; setOpen(d.querySelector("summary span").textContent, false); });
 };
+clipSelect.addEventListener("change", changeClip);
 timeInput.addEventListener("change", () => { showStill(); fetchFrame(); });
 
 (async () => {
   const res = await fetch("/api/state");
   const data = await res.json();
   look = data.look;
-  timeInput.max = data.duration.toFixed(1);
+  applyClipMeta(data);
   renderSliders(data.schema);
   fetchFrame();
 })();
