@@ -42,10 +42,15 @@
   #btn-mute.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .side-head { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
   .side-head select { width: auto; flex: 1 1 auto; min-width: 0; }
+  .side-head > button { padding: 3px 8px; font-size: 11px; color: var(--mute); flex-shrink: 0; }
+  .side-head input[type=text] {
+    width: 0; flex: 1 1 72px; min-width: 0;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); padding: 4px 6px; font: inherit; font-size: 11px;
+  }
+  .side-head input[hidden] { display: none; }
   h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--mute); margin: 0; }
-  .toggles { margin-left: auto; display: flex; gap: 6px; }
-  .toggles button { padding: 3px 8px; font-size: 11px; color: var(--mute); }
   details.group { margin: 0 0 6px; border: 1px solid var(--line); background: var(--panel); }
   details.group.off { opacity: 0.45; }
   details.group > summary {
@@ -187,10 +192,8 @@
     <div class="side-head">
       <h1>look</h1>
       <select id="look-file" title="Look file in configs/"></select>
-      <div class="toggles">
-        <button id="btn-expand" type="button">all</button>
-        <button id="btn-collapse" type="button">none</button>
-      </div>
+      <input id="look-name" type="text" hidden placeholder="name" title="Name for the new look" autocomplete="off" />
+      <button id="btn-look-new" type="button" title="New blank look">new</button>
     </div>
     <div id="sliders"></div>
   </div>
@@ -205,6 +208,7 @@ const loopInput = document.getElementById("loop-seconds");
 const slidersRoot = document.getElementById("sliders");
 const clipSelect = document.getElementById("clip");
 const lookSelect = document.getElementById("look-file");
+const lookNameInput = document.getElementById("look-name");
 
 let look = {};
 let timer = null;
@@ -889,6 +893,15 @@ function fillLooks(items, current) {
   currentLookPath = lookSelect.value;
 }
 
+function applyLoadedLook(data) {
+  look = data.look;
+  fillLooks(data.looks, data.look_path);
+  ensureBindings();
+  renderSliders(schema);
+  showStill();
+  fetchFrame();
+}
+
 async function changeLook() {
   const path = lookSelect.value;
   if (!path || path === currentLookPath) return;
@@ -903,13 +916,45 @@ async function changeLook() {
     lookSelect.value = currentLookPath;
     return;
   }
-  const data = await res.json();
-  look = data.look;
-  fillLooks(data.looks, data.look_path);
-  ensureBindings();
-  renderSliders(schema);
-  showStill();
-  fetchFrame();
+  applyLoadedLook(await res.json());
+}
+
+function lookStem(raw) {
+  let name = (raw || "").trim();
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".yaml")) name = name.slice(0, -5).trim();
+  else if (lower.endsWith(".yml")) name = name.slice(0, -4).trim();
+  return name;
+}
+
+async function createLook() {
+  if (lookNameInput.hidden) {
+    lookNameInput.hidden = false;
+    lookNameInput.value = "";
+    lookNameInput.focus();
+    status.textContent = "name the look";
+    return;
+  }
+  const name = lookStem(lookNameInput.value);
+  if (!name) {
+    status.textContent = "name required";
+    lookNameInput.focus();
+    return;
+  }
+  status.textContent = "new look…";
+  const res = await fetch("/api/look/new", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    status.textContent = await res.text();
+    lookNameInput.focus();
+    return;
+  }
+  lookNameInput.hidden = true;
+  lookNameInput.value = "";
+  applyLoadedLook(await res.json());
 }
 
 async function saveLook() {
@@ -948,6 +993,16 @@ document.getElementById("btn-still").onclick = () => { showStill(); fetchFrame()
 document.getElementById("btn-keep").onclick = () => { showStill(); keepStill(); };
 document.getElementById("btn-motion").onclick = () => fetchMotion();
 document.getElementById("btn-save").onclick = saveLook;
+document.getElementById("btn-look-new").onclick = createLook;
+lookNameInput.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    createLook();
+  } else if (ev.key === "Escape") {
+    lookNameInput.hidden = true;
+    lookNameInput.value = "";
+  }
+});
 btnMute.onclick = () => setMusicMuted(!motion.muted);
 motion.addEventListener("volumechange", () => {
   const muted = motion.muted || motion.volume === 0;
@@ -966,18 +1021,6 @@ document.addEventListener("keydown", (ev) => {
     keepStill();
   }
 });
-  document.getElementById("btn-expand").onclick = () => {
-  document.querySelectorAll("details.group").forEach((d) => {
-    d.open = true;
-    setOpen(d.querySelector("summary .name").textContent, true);
-  });
-};
-document.getElementById("btn-collapse").onclick = () => {
-  document.querySelectorAll("details.group").forEach((d) => {
-    d.open = false;
-    setOpen(d.querySelector("summary .name").textContent, false);
-  });
-};
 clipSelect.addEventListener("change", changeClip);
 lookSelect.addEventListener("change", changeLook);
 document.querySelectorAll("#mode button").forEach((b) => {

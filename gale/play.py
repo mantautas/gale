@@ -79,6 +79,22 @@ def list_looks(current: Path | None = None) -> list[dict]:
     return items
 
 
+def look_file_for(name: str) -> Path:
+    """configs/<name>.yaml. Rejects an empty name or a path."""
+    raw = name.strip()
+    lower = raw.lower()
+    if lower.endswith(".yaml"):
+        raw = raw[:-5].strip()
+    elif lower.endswith(".yml"):
+        raw = raw[:-4].strip()
+    if not raw or raw in {".", ".."} or "/" in raw or "\\" in raw or raw.startswith("."):
+        raise ValueError("name required")
+    path = CONFIGS_DIR / f"{raw}.yaml"
+    if path.exists():
+        raise ValueError(f"{raw} already exists")
+    return path
+
+
 def resolve_look(name_or_path: str) -> Path:
     """Only allow a look file inside configs/."""
     raw = Path(name_or_path)
@@ -152,6 +168,27 @@ class Session:
         loaded = Look.load(resolved)
         self.look_path = CONFIGS_DIR / resolved.relative_to(CONFIGS_DIR.resolve())
         self.params.replace(loaded.to_dict())
+        if self.stack is not None:
+            self.stack.reset()
+
+    def look_payload(self) -> dict:
+        return {
+            "ok": True,
+            "look": self.params.to_dict(),
+            "look_path": self.look_path.as_posix(),
+            "looks": list_looks(self.look_path),
+        }
+
+    def create_look(self, name: str) -> None:
+        """Write a blank look (every section off) under the given name."""
+        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+        path = look_file_for(name)
+        blank = Look()
+        for attr in SECTION_ATTR.values():
+            getattr(blank, attr).enabled = False
+        blank.save(path)
+        self.look_path = path
+        self.params.replace(blank.to_dict())
         if self.stack is not None:
             self.stack.reset()
 
@@ -550,13 +587,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, b"missing path", "text/plain")
                     return
                 SESSION.load_look(src)
-                payload = {
-                    "ok": True,
-                    "look": SESSION.params.to_dict(),
-                    "look_path": SESSION.look_path.as_posix(),
-                    "looks": list_looks(SESSION.look_path),
-                }
-                self._send(200, json.dumps(payload).encode(), "application/json")
+                self._send(200, json.dumps(SESSION.look_payload()).encode(), "application/json")
+                return
+            if path == "/api/look/new":
+                name = str(body.get("name") or "")
+                if not name.strip():
+                    self._send(400, b"name required", "text/plain")
+                    return
+                SESSION.create_look(name)
+                self._send(200, json.dumps(SESSION.look_payload()).encode(), "application/json")
                 return
         except Exception as exc:
             self._send(500, str(exc).encode(), "text/plain")
