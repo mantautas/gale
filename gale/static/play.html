@@ -104,6 +104,7 @@
   .row input[type=range] {
     width: 100%; grid-column: auto; accent-color: var(--accent); height: 18px;
   }
+  .row[hidden] { display: none; }
   .row .props {
     display: flex; gap: 3px; align-items: center; justify-content: flex-end; min-height: 22px;
   }
@@ -201,6 +202,7 @@ let sectionAttr = {
   Grain: "grain",
   Halftone: "halftone",
   CRT: "crt",
+  Slice: "slice",
 };
 const nowOutputs = {};
 
@@ -380,7 +382,9 @@ function setOpen(name, open) {
 function groupHint(name) {
   const key = name.toLowerCase();
   const block = look[key];
-  if (block && typeof block.mode === "string") return block.mode;
+  if (!block) return "";
+  if (typeof block.mode === "string") return block.mode;
+  if (typeof block.axis === "string") return block.axis;
   return "";
 }
 
@@ -478,6 +482,7 @@ function renderSliders(schemaIn) {
     if (s.type === "enum") {
       const row = document.createElement("div");
       row.className = "row enum";
+      row.dataset.path = s.path;
       const opts = (s.options || []).map((opt) => {
         const sel = opt === val ? " selected" : "";
         return `<option value="${opt}"${sel}>${opt}</option>`;
@@ -485,9 +490,11 @@ function renderSliders(schemaIn) {
       row.innerHTML = `${labelCell(s)}<select>${opts}</select>`;
       row.querySelector("select").addEventListener("change", (ev) => {
         setPath(look, s.path, ev.target.value);
-        const sum = row.closest("details").querySelector("summary .hint")
-          || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary .name").after(h); return h; })();
-        sum.textContent = ev.target.value;
+        if (s.path.endsWith(".mode") || s.path.endsWith(".axis")) {
+          const sum = row.closest("details").querySelector("summary .hint")
+            || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary .name").after(h); return h; })();
+          sum.textContent = ev.target.value;
+        }
         // Picking a mode turns the section back on.
         const attr = sectionAttr[s.group];
         if (attr && look[attr] && ev.target.value !== "none") {
@@ -497,6 +504,24 @@ function renderSliders(schemaIn) {
           const enBtn = detailsEl.querySelector("summary .en");
           if (enBtn) { enBtn.classList.add("on"); enBtn.textContent = "on"; }
         }
+        showStill();
+        scheduleFrame();
+        syncSliceColorControls();
+      });
+      body.appendChild(row);
+    } else if (s.type === "toggle") {
+      const row = document.createElement("div");
+      row.className = "row enum";
+      row.dataset.path = s.path;
+      const on = val !== false;
+      row.innerHTML = `${labelCell(s)}<span class="props"><button type="button" class="${on ? "on" : ""}">${on ? "on" : "off"}</button></span>`;
+      const btn = row.querySelector("button");
+      btn.addEventListener("click", () => {
+        const next = !btn.classList.contains("on");
+        btn.classList.toggle("on", next);
+        btn.textContent = next ? "on" : "off";
+        setPath(look, s.path, next);
+        syncSliceColorControls();
         showStill();
         scheduleFrame();
       });
@@ -528,6 +553,19 @@ function renderSliders(schemaIn) {
     }
   }
   syncSoundtrackMarks();
+  syncSliceColorControls();
+}
+
+function syncSliceColorControls() {
+  const slice = look.slice || {};
+  const horizontal = slice.axis === "horizontal";
+  const colorOn = slice.color !== false;
+  const toggle = document.querySelector('[data-path="slice.color"]');
+  if (toggle) toggle.hidden = !horizontal;
+  const showSplit = !horizontal || colorOn;
+  document.querySelectorAll('[data-path="slice.split"], [data-path="slice.colors"]').forEach((row) => {
+    row.hidden = !showSplit;
+  });
 }
 
 function renderBindableRow(s, val) {

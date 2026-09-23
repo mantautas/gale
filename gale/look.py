@@ -39,6 +39,13 @@ OVERLAY_MODES = [
 ]
 OVERLAY_MODE_INDEX = {name: i for i, name in enumerate(OVERLAY_MODES)}
 
+SLICE_AXES = ["horizontal", "vertical"]
+SLICE_AXIS_INDEX = {name: i for i, name in enumerate(SLICE_AXES)}
+
+# First letter shifts forward, middle stays, last shifts back. rgb is the original split.
+SLICE_SPLIT_COLORS = ["rgb", "rbg", "grb", "gbr", "brg", "bgr"]
+SLICE_SPLIT_INDEX = {name: i for i, name in enumerate(SLICE_SPLIT_COLORS)}
+
 AUTOMATION_MODES = ["none", "increasing", "decreasing", "wave"]
 MODULATE_SOURCES = ["none", "rms", "low", "mid", "high", "energy", "beat", "onset", "kick"]
 
@@ -53,6 +60,7 @@ SECTION_ATTR = {
     "Grain": "grain",
     "Halftone": "halftone",
     "CRT": "crt",
+    "Slice": "slice",
 }
 
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
@@ -275,6 +283,37 @@ SLIDERS = [
     {"group": "CRT", "path": "crt.curvature", "label": "Curve", "min": 0.0, "max": 0.5, "step": 0.01},
     {"group": "CRT", "path": "crt.vignette", "label": "Vignette", "min": 0.0, "max": 1.0, "step": 0.01},
     {"group": "CRT", "path": "crt.bleed", "label": "Bleed", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Slice", "open": False, "path": "slice.axis", "label": "Axis", "type": "enum", "options": SLICE_AXES},
+    {"group": "Slice", "path": "slice.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Slice",
+        "path": "slice.amount",
+        "label": "Amount",
+        "min": 0.0,
+        "max": 0.5,
+        "step": 0.005,
+        "bindable": True,
+    },
+    {
+        "group": "Slice",
+        "path": "slice.count",
+        "label": "Count",
+        "min": 2.0,
+        "max": 48.0,
+        "step": 1.0,
+        "bindable": True,
+    },
+    {"group": "Slice", "path": "slice.speed", "label": "Speed", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Slice", "path": "slice.color", "label": "Colors", "modes": "horizontal", "type": "toggle"},
+    {"group": "Slice", "path": "slice.split", "label": "Split", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Slice",
+        "path": "slice.colors",
+        "label": "Colors",
+        "modes": "lead · center · trail",
+        "type": "enum",
+        "options": SLICE_SPLIT_COLORS,
+    },
 ]
 
 
@@ -383,6 +422,19 @@ class Crt:
     curvature: float = 0.10
     vignette: float = 0.22
     bleed: float = 0.18
+
+
+@dataclass
+class Slice:
+    enabled: bool = False
+    axis: str = "horizontal"
+    mix: float = 1.0
+    amount: float = 0.16
+    count: float = 14.0
+    speed: float = 0.22
+    split: float = 0.40
+    color: bool = True
+    colors: str = "rgb"
 
 
 @dataclass
@@ -511,6 +563,7 @@ class Look:
     grain: Grain = field(default_factory=Grain)
     halftone: Halftone = field(default_factory=Halftone)
     crt: Crt = field(default_factory=Crt)
+    slice: Slice = field(default_factory=Slice)
     bindings: list[Binding] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -543,6 +596,11 @@ class Look:
         overlay_data = dict(data.get("overlay") or {})
         if overlay_data.get("mode") not in OVERLAY_MODE_INDEX:
             overlay_data["mode"] = "none"
+        slice_data = dict(data.get("slice") or {})
+        if slice_data.get("axis") not in SLICE_AXIS_INDEX:
+            slice_data["axis"] = "horizontal"
+        if slice_data.get("colors") not in SLICE_SPLIT_INDEX:
+            slice_data["colors"] = "rgb"
         bindings: list[Binding] = []
         for raw in data.get("bindings") or []:
             if isinstance(raw, dict):
@@ -564,6 +622,7 @@ class Look:
             grain=_take(Grain, data.get("grain")),
             halftone=_take(Halftone, data.get("halftone")),
             crt=_take(Crt, data.get("crt")),
+            slice=_take(Slice, slice_data),
             bindings=bindings,
         )
 
@@ -589,4 +648,5 @@ class Look:
         self.grain = other.grain
         self.halftone = other.halftone
         self.crt = other.crt
+        self.slice = other.slice
         self.bindings = other.bindings

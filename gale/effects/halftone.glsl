@@ -25,12 +25,12 @@ void main() {
     float sa = sin(angle);
     p = mat2(ca, -sa, sa, ca) * p;
 
-    float cell = mix(0.016, 0.12, clamp((scale - 0.5) / 11.5, 0.0, 1.0));
-    vec2 f = fract(p / max(cell, 0.004)) - 0.5;
+    float cell = mix(0.007, 0.048, clamp((scale - 0.5) / 11.5, 0.0, 1.0));
+    vec2 f = fract(p / max(cell, 0.003)) - 0.5;
     float dist = length(f) * 1.41421356;
 
     float tone = pow(clamp(l, 0.0, 1.0), mix(0.75, 1.55, clamp(contrast, 0.0, 1.0)));
-    float radius = mix(0.92, 0.04, tone);
+    float radius = mix(0.78, 0.05, tone);
     float hard = mix(0.16, 0.035, clamp(contrast, 0.0, 1.0));
     float ink = 1.0 - smoothstep(radius, radius + hard, dist);
 

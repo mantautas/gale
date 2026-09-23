@@ -14,7 +14,7 @@ import numpy as np
 
 from gale.effects import load_effect
 from gale.engine.gl import ShaderPass
-from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, Look, resolve_path
+from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, SLICE_AXIS_INDEX, SLICE_SPLIT_INDEX, Look, resolve_path
 from gale.timeline import Timeline
 
 UniformFn = Callable[[float], dict]
@@ -28,6 +28,8 @@ BINDABLE_PATHS = (
     "trails.mix",
     "halftone.scale",
     "crt.scanlines",
+    "slice.amount",
+    "slice.count",
 )
 
 
@@ -246,6 +248,20 @@ def build_look(
             "center": (g.center_x, g.center_y),
         }
 
+    def slice_shift(t: float) -> dict:
+        s = params.slice
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
+        return {
+            "mix_amt": s.mix,
+            "amount": resolved["slice.amount"],
+            "count": resolved["slice.count"],
+            "speed": s.speed,
+            "split": s.split,
+            "axis": int(SLICE_AXIS_INDEX.get(s.axis, 0)),
+            "colors": int(SLICE_SPLIT_INDEX.get(s.colors, 0)),
+            "color_on": 0 if s.axis == "horizontal" and not s.color else 1,
+        }
+
     def flow(t: float) -> dict:
         energy = tl.audio("energy", t)
         f = params.flow
@@ -323,6 +339,7 @@ def build_look(
         [
             (Simple(ctx, "grade", width, height, grade), lambda: params.grade.enabled),
             (Simple(ctx, "geo", width, height, geo), lambda: params.geo.enabled and params.geo.mode != "none"),
+            (Simple(ctx, "slice", width, height, slice_shift), lambda: params.slice.enabled),
             (Simple(ctx, "curl_flow", width, height, flow), lambda: params.flow.enabled),
             (Feedback(ctx, width, height, trails), lambda: params.trails.enabled),
             (Halation(ctx, width, height, glow), lambda: params.glow.enabled),
