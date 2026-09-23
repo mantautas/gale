@@ -12,6 +12,8 @@ uniform float scale;
 uniform float count;
 uniform float speed;
 uniform float bright;   // 0 ink (darken), 1 light add
+uniform float radius;   // sun ring radius
+uniform float irregular; // sun surface breakup
 uniform vec2 center;
 uniform vec3 tint;
 
@@ -119,6 +121,29 @@ float overlay_edges(vec2 st) {
     return smoothstep(thr, thr + 0.12, e);
 }
 
+// Burning ring. Limb noise is seamless via cos/sin. Drift scrolls every layer.
+float overlay_sun(vec2 st) {
+    vec2 p = to_centered(st);
+    float r = length(p);
+    float a = atan(p.y, p.x);
+    vec2 ring = vec2(cos(a), sin(a));
+    float crawl = time * speed * 3.2;
+    float irreg = clamp(irregular, 0.0, 1.0);
+    float limb = fbm(ring * 2.1 + vec2(crawl, crawl * 0.37));
+    float tongue = fbm(ring * 5.4 + vec2(-crawl * 1.15, crawl * 0.42));
+    float grain_n = fbm(ring * mix(7.0, 18.0, clamp(scale / 12.0, 0.0, 1.0)) + vec2(crawl * 1.6, -crawl));
+    float rad = max(radius, 0.02);
+    rad *= 1.0 + (limb * 0.72 + tongue * 0.38) * irreg;
+    float width = mix(0.010, 0.10, clamp(line_amt, 0.0, 1.0));
+    width *= 1.0 + max(tongue, 0.0) * irreg * 1.15;
+    float d = r - rad;
+    float band = exp(-d * d / max(width * width, 1e-5));
+    float corona = exp(-max(d, 0.0) * max(d, 0.0) / max(width * width * 22.0, 1e-4));
+    float heat = mix(0.28, 1.45, smoothstep(-0.35, 0.72, grain_n * 0.7 + tongue * 0.45));
+    float shine = mix(0.25, 2.6, clamp(amount, 0.0, 1.0));
+    return (band * heat + corona * 0.5) * shine;
+}
+
 void main() {
     vec3 src = texture(frame, uv).rgb;
     if (mode <= 0 || mix_amt <= 0.001) {
@@ -127,6 +152,11 @@ void main() {
     }
 
     float width = mix(0.0010, 0.009, clamp(line_amt, 0.0, 1.0));
+    if (mode == 6) {
+        vec3 hot = mix(tint, vec3(1.0, 0.97, 0.90), 0.72);
+        color = clamp(src + hot * overlay_sun(uv) * mix_amt, 0.0, 1.0);
+        return;
+    }
     float line = 0.0;
     if (mode == 1) line = overlay_grid(uv, width);
     else if (mode == 2) line = overlay_radar(uv, width);

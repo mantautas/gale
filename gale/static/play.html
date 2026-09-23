@@ -264,19 +264,6 @@ function setSectionEnabled(group, on) {
   if (!attr) return;
   if (!look[attr]) look[attr] = {};
   look[attr].enabled = !!on;
-  // Mode-based sections: off clears mode so nothing is “armed” while disabled.
-  if (!on && (attr === "geo" || attr === "overlay") && "mode" in look[attr]) {
-    look[attr].mode = "none";
-  }
-}
-
-function clearModeUI(details, group) {
-  const attr = sectionAttr[group];
-  if (attr !== "geo" && attr !== "overlay") return;
-  const modeSelect = details.querySelector('.row.enum select');
-  if (modeSelect) modeSelect.value = "none";
-  const hint = details.querySelector("summary .hint");
-  if (hint) hint.textContent = "none";
 }
 
 function getPath(obj, path) {
@@ -471,9 +458,10 @@ function noteIcon() {
 }
 
 function labelCell(s) {
-  const modesText = s.modes ? String(s.modes).replaceAll("/", "/\u200b") : "";
+  const showModes = s.modes && s.group !== "Overlay" && s.group !== "Geo";
+  const modesText = showModes ? String(s.modes).replaceAll("/", "/\u200b") : "";
   const modes = modesText ? `<span class="affects">${modesText}</span>` : "";
-  const title = s.modes ? `${s.label} (${s.modes})` : s.label;
+  const title = showModes ? `${s.label} (${s.modes})` : s.label;
   return `<span class="label" title="${title}">${noteIcon()}<span class="name">${s.label}</span>${modes}</span>`;
 }
 
@@ -574,7 +562,6 @@ function renderSliders(schemaIn) {
         en.textContent = on ? "on" : "off";
         detailsEl.classList.toggle("off", !on);
         setSectionEnabled(groupName, on);
-        if (!on) clearModeUI(detailsEl, groupName);
         showStill();
         scheduleFrame();
       });
@@ -621,6 +608,7 @@ function renderSliders(schemaIn) {
         showStill();
         scheduleFrame();
         syncSliceColorControls();
+        syncSectionModes();
       });
       body.appendChild(row);
     } else if (s.type === "toggle") {
@@ -668,9 +656,36 @@ function renderSliders(schemaIn) {
       });
       body.appendChild(row);
     }
+    const stamped = body.lastElementChild;
+    if (stamped && s.modes) stamped.dataset.modes = s.modes;
   }
   syncSoundtrackMarks();
   syncSliceColorControls();
+  syncSectionModes();
+}
+
+function syncSectionModes() {
+  for (const section of ["overlay", "geo"]) {
+    const select = document.querySelector(`[data-path="${section}.mode"] select`);
+    if (!select) continue;
+    const mode = select.value;
+    const options = new Set([...select.options].map((opt) => opt.value));
+    const group = select.closest("details");
+    if (!group) continue;
+    group.querySelectorAll(".row[data-path]").forEach((row) => {
+      if (row.dataset.path === `${section}.mode`) {
+        row.hidden = false;
+        return;
+      }
+      if (mode === "none") {
+        row.hidden = true;
+        return;
+      }
+      const parts = (row.dataset.modes || "").split("/").map((part) => part.trim()).filter(Boolean);
+      const listed = parts.length > 0 && parts.every((part) => options.has(part));
+      row.hidden = listed && !parts.includes(mode);
+    });
+  }
 }
 
 function syncSliceColorControls() {

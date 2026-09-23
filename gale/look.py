@@ -36,6 +36,7 @@ OVERLAY_MODES = [
     "contours",
     "voronoi",
     "edges",
+    "sun",
 ]
 OVERLAY_MODE_INDEX = {name: i for i, name in enumerate(OVERLAY_MODES)}
 
@@ -100,7 +101,7 @@ SLIDERS = [
         "group": "Overlay",
         "path": "overlay.amount",
         "label": "Amount",
-        "modes": "grid/contours/edges",
+        "modes": "grid/contours/edges/sun",
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
@@ -120,7 +121,7 @@ SLIDERS = [
         "group": "Overlay",
         "path": "overlay.scale",
         "label": "Scale",
-        "modes": "voronoi",
+        "modes": "voronoi/sun",
         "min": 0.5,
         "max": 12.0,
         "step": 0.1,
@@ -130,26 +131,46 @@ SLIDERS = [
         "group": "Overlay",
         "path": "overlay.line",
         "label": "Stroke",
-        "modes": "grid/radar/contours/voronoi",
+        "modes": "grid/radar/contours/voronoi/sun",
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
     },
-    {"group": "Overlay", "path": "overlay.bright", "label": "Bright", "modes": "ink → light", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Overlay", "path": "overlay.bright", "label": "Bright", "modes": "grid/radar/contours/voronoi/edges", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Overlay",
+        "path": "overlay.radius",
+        "label": "Radius",
+        "modes": "sun",
+        "min": 0.04,
+        "max": 0.7,
+        "step": 0.01,
+    },
+    {
+        "group": "Overlay",
+        "path": "overlay.irregular",
+        "label": "Irregular",
+        "modes": "sun",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+        "bindable": True,
+    },
     {
         "group": "Overlay",
         "path": "overlay.speed",
         "label": "Drift",
-        "modes": "grid/radar",
+        "modes": "grid/radar/sun",
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
+        "bindable": True,
     },
     {
         "group": "Overlay",
         "path": "overlay.center_x",
         "label": "Center X",
-        "modes": "grid/radar",
+        "modes": "grid/radar/sun",
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
@@ -158,7 +179,7 @@ SLIDERS = [
         "group": "Overlay",
         "path": "overlay.center_y",
         "label": "Center Y",
-        "modes": "grid/radar",
+        "modes": "grid/radar/sun",
         "min": 0.0,
         "max": 1.0,
         "step": 0.01,
@@ -370,6 +391,8 @@ class Overlay:
     line: float = 0.35
     bright: float = 1.0
     speed: float = 0.04
+    radius: float = 0.22
+    irregular: float = 0.55
     center_x: float = 0.5
     center_y: float = 0.5
     tint: list[float] = field(default_factory=lambda: [0.92, 0.84, 0.72])
