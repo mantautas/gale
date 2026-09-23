@@ -13,7 +13,7 @@ import moderngl
 import numpy as np
 
 from gale.effects import load_effect
-from gale.engine.gl import ShaderPass
+from gale.engine.gl import VERT, ShaderPass
 from gale.look import GEO_MODE_INDEX, OVERLAY_MODE_INDEX, SLICE_AXIS_INDEX, SLICE_SPLIT_INDEX, Look, resolve_path
 from gale.timeline import Timeline
 
@@ -33,6 +33,7 @@ BINDABLE_PATHS = (
     "slice.amount",
     "slice.count",
     "turb.amount",
+    "smoke.amount",
 )
 
 
@@ -135,6 +136,103 @@ class Halation:
                 "tint": u.get("tint", (1.0, 0.38, 0.16)),
             },
             textures={"frame": frame, "bloom": v2},
+        )
+
+    def read(self) -> np.ndarray:
+        return self.comp.read()
+
+
+def _float_field(ctx: moderngl.Context, width: int, height: int) -> moderngl.Texture:
+    tex = ctx.texture((width, height), 4, dtype="f2")
+    tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+    tex.repeat_x = False
+    tex.repeat_y = False
+    return tex
+
+
+class Smoke:
+    """Half-resolution fluid. Three solver steps and one dye step per frame."""
+
+    def __init__(
+        self,
+        ctx: moderngl.Context,
+        width: int,
+        height: int,
+        uniforms: UniformFn,
+    ):
+        self.ctx = ctx
+        self.uniforms = uniforms
+        self.sim_size = (max(2, width // 2), max(2, height // 2))
+        sw, sh = self.sim_size
+        quad = ctx.buffer(np.array([-1, -1, 1, -1, -1, 1, 1, 1], dtype="f4"))
+        self.sim_prog = ctx.program(vertex_shader=VERT, fragment_shader=load_effect("smoke_sim"))
+        self.dye_prog = ctx.program(vertex_shader=VERT, fragment_shader=load_effect("smoke_dye"))
+        self.sim_vao = ctx.vertex_array(self.sim_prog, [(quad, "2f", "in_pos")])
+        self.dye_vao = ctx.vertex_array(self.dye_prog, [(quad, "2f", "in_pos")])
+        self.vel = [_float_field(ctx, sw, sh) for _ in range(2)]
+        self.dye = [_float_field(ctx, sw, sh) for _ in range(2)]
+        self.vel_fbo = [ctx.framebuffer(color_attachments=[tex]) for tex in self.vel]
+        self.dye_fbo = [ctx.framebuffer(color_attachments=[tex]) for tex in self.dye]
+        self.comp = ShaderPass(ctx, load_effect("smoke"), width, height)
+        self._vel_i = 0
+        self._dye_i = 0
+        self.reset()
+
+    def reset(self) -> None:
+        for fbo in self.vel_fbo:
+            fbo.clear(0.0, 0.0, 0.5, 0.0)
+        for fbo in self.dye_fbo:
+            fbo.clear(0.0, 0.0, 0.0, 1.0)
+        self._vel_i = 0
+        self._dye_i = 0
+
+    def _draw(self, prog, vao, dst, textures: dict, uniforms: dict) -> None:
+        dst.use()
+        unit = 0
+        for name, tex in textures.items():
+            if name not in prog:
+                continue
+            tex.use(unit)
+            prog[name].value = unit
+            unit += 1
+        for name, value in uniforms.items():
+            if name in prog:
+                prog[name].value = value
+        vao.render(moderngl.TRIANGLE_STRIP)
+
+    def apply(self, frame: moderngl.Texture, t: float) -> moderngl.Texture:
+        u = self.uniforms(t)
+        sw, sh = self.sim_size
+        sim_u = {
+            "resolution": (float(sw), float(sh)),
+            "motion": t * (0.15 + float(u.get("speed", 0.4)) * 1.1),
+            "amount": float(u.get("amount", 0.75)),
+            "vorticity": float(u.get("vorticity", 0.11)),
+        }
+        for _ in range(3):
+            src_i = self._vel_i
+            dst_i = 1 - src_i
+            self._draw(self.sim_prog, self.sim_vao, self.vel_fbo[dst_i], {"field": self.vel[src_i]}, sim_u)
+            self._vel_i = dst_i
+        dye_u = {
+            "resolution": (float(sw), float(sh)),
+            "motion": sim_u["motion"],
+            "amount": sim_u["amount"],
+            "fade": float(u.get("fade", 0.25)),
+        }
+        src_d = self._dye_i
+        dst_d = 1 - src_d
+        self._draw(
+            self.dye_prog,
+            self.dye_vao,
+            self.dye_fbo[dst_d],
+            {"field": self.vel[self._vel_i], "dye": self.dye[src_d]},
+            dye_u,
+        )
+        self._dye_i = dst_d
+        return self.comp.render(
+            uniforms={"mix_amt": float(u.get("mix_amt", 0.55))},
+            textures={"frame": frame, "smoke": self.dye[self._dye_i]},
         )
 
     def read(self) -> np.ndarray:
@@ -351,6 +449,17 @@ def build_look(
             "steps": tb.steps,
         }
 
+    def smoke(t: float) -> dict:
+        sm = params.smoke
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
+        return {
+            "mix_amt": sm.mix,
+            "amount": resolved["smoke.amount"],
+            "speed": sm.speed,
+            "vorticity": sm.vorticity,
+            "fade": sm.fade,
+        }
+
     return Stack(
         [
             (Simple(ctx, "grade", width, height, grade), lambda: params.grade.enabled),
@@ -362,6 +471,7 @@ def build_look(
             (Simple(ctx, "overlay", width, height, overlay), lambda: params.overlay.enabled and params.overlay.mode != "none"),
             (Simple(ctx, "halftone", width, height, halftone), lambda: params.halftone.enabled),
             (Simple(ctx, "turb", width, height, turb), lambda: params.turb.enabled),
+            (Smoke(ctx, width, height, smoke), lambda: params.smoke.enabled),
             (Simple(ctx, "grain", width, height, grain), lambda: params.grain.enabled),
             (Simple(ctx, "crt", width, height, crt), lambda: params.crt.enabled),
         ],

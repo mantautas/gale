@@ -27,6 +27,8 @@ STATIC = Path(__file__).parent / "static"
 OUT_DIR = Path("out")
 STILLS_DIR = OUT_DIR / "stills"
 ASSETS_DIR = Path("assets")
+CONFIGS_DIR = Path("configs")
+LOOK_EXTS = {".yaml", ".yml"}
 FRAME_PATH = OUT_DIR / "play_frame.jpg"
 PREVIEW_PATH = OUT_DIR / "play_preview.mp4"
 HOST, PORT = "127.0.0.1", 8765
@@ -58,6 +60,42 @@ def list_media() -> list[dict]:
             rel = p.relative_to(ASSETS_DIR)
             items.append({"name": str(rel), "path": str(p), "kind": media_kind(p)})
     return items
+
+
+def list_looks(current: Path | None = None) -> list[dict]:
+    """YAML looks in configs/, plus the active file if it lives elsewhere."""
+    items: list[dict] = []
+    seen: set[Path] = set()
+    if CONFIGS_DIR.exists():
+        for p in sorted(CONFIGS_DIR.iterdir()):
+            if p.is_file() and p.suffix.lower() in LOOK_EXTS:
+                resolved = p.resolve()
+                seen.add(resolved)
+                items.append({"name": p.stem, "path": p.as_posix()})
+    if current is not None and current.exists():
+        resolved = current.resolve()
+        if resolved not in seen and resolved.suffix.lower() in LOOK_EXTS:
+            items.insert(0, {"name": resolved.stem, "path": current.as_posix()})
+    return items
+
+
+def resolve_look(name_or_path: str) -> Path:
+    """Only allow a look file inside configs/."""
+    raw = Path(name_or_path)
+    candidates = [raw]
+    if not raw.is_absolute():
+        candidates.append(CONFIGS_DIR / raw)
+        candidates.append(CONFIGS_DIR / raw.name)
+    configs_root = CONFIGS_DIR.resolve()
+    for cand in candidates:
+        if not cand.exists() or not cand.is_file():
+            continue
+        resolved = cand.resolve()
+        if resolved.suffix.lower() not in LOOK_EXTS:
+            continue
+        if configs_root == resolved.parent or configs_root in resolved.parents:
+            return resolved
+    raise ValueError(f"look not found in configs/: {name_or_path}")
 
 
 def resolve_source(name_or_path: str) -> Path:
@@ -108,6 +146,14 @@ class Session:
         STILLS_DIR.mkdir(parents=True, exist_ok=True)
         self.ctx = create_context()
         self.load_source(args.input, start=args.start, duration=args.duration)
+
+    def load_look(self, path: str) -> None:
+        resolved = resolve_look(path)
+        loaded = Look.load(resolved)
+        self.look_path = CONFIGS_DIR / resolved.relative_to(CONFIGS_DIR.resolve())
+        self.params.replace(loaded.to_dict())
+        if self.stack is not None:
+            self.stack.reset()
 
     def load_source(
         self,
@@ -208,6 +254,7 @@ class Session:
             "duration": self.duration,
             "native_width": self.src_width,
             "native_height": self.src_height,
+            "song_offset": self.song_offset,
         }
 
     def clip_u_at(self, t: float) -> float:
@@ -217,10 +264,14 @@ class Session:
             return max(0.0, min(1.0, t / dur))
         return max(0.0, min(1.0, (t - self.video_start) / dur))
 
-    def resolved_at(self, t: float) -> dict:
-        """Evaluated bindable params at look time t (same clock as Frame)."""
-        song_t = self.song_offset + t
-        clip_u = self.clip_u_at(t)
+    def resolved_at(self, video_t: float, audio_t: float) -> dict:
+        """Bindable params at this frame. audio_t is the song position of that frame."""
+        if self.kind == "photo":
+            song_t = audio_t
+            clip_u = self.clip_u_at(audio_t)
+        else:
+            song_t = audio_t
+            clip_u = self.clip_u_at(video_t)
         tl = None
         if self.analysis:
             try:
@@ -229,16 +280,22 @@ class Session:
                 tl = None
         return resolve_bindings(self.params, tl, song_t, clip_u)
 
-    def _apply_range(self, start_i: int, end_i: int) -> np.ndarray:
-        """Run frames [start_i, end_i] inclusive through the stack; return last image."""
+    def _apply_range(
+        self,
+        start_i: int,
+        end_i: int,
+        video_origin: float,
+        audio_origin: float,
+    ) -> np.ndarray:
+        """Run frames [start_i, end_i] inclusive. Audio stays locked to the picture."""
         self.stack.reset()
         last = None
         for i in range(start_i, end_i + 1):
             video_t = self.video_start + i / self.preview_fps
-            t = self.song_offset + video_t
+            song_t = audio_origin + (video_t - video_origin)
             frame = self.frames[i]
             self.tex.write(np.ascontiguousarray(frame[::-1]).tobytes())
-            self.stack.apply(self.tex, t, self.clip_u_at(video_t))
+            self.stack.apply(self.tex, song_t, self.clip_u_at(video_t))
             last = self.stack.read()
         assert last is not None
         return last
@@ -249,24 +306,23 @@ class Session:
         i = int(round((t - self.video_start) * self.preview_fps))
         return max(0, min(len(self.frames) - 1, i))
 
-    def render_frame(self, t: float) -> None:
+    def render_frame(self, video_t: float, audio_t: float) -> None:
         if self.kind == "photo":
-            image = self._apply_photo_preview(t)
+            image = self._apply_photo_preview(audio_t)
         else:
-            end = self.index_at(t)
+            end = self.index_at(video_t)
             start = max(0, end - WARMUP_FRAMES)
-            image = self._apply_range(start, end)
+            image = self._apply_range(start, end, video_t, audio_t)
         write_jpeg(str(FRAME_PATH), image)
 
-    def _apply_photo_preview(self, t: float) -> np.ndarray:
+    def _apply_photo_preview(self, audio_t: float) -> np.ndarray:
         self.stack.reset()
         frame = self.frames[0]
         last = None
-        uniform_t = self.song_offset + t
-        clip_u = self.clip_u_at(t)
+        clip_u = self.clip_u_at(audio_t)
         for _ in range(WARMUP_FRAMES):
             self.tex.write(np.ascontiguousarray(frame[::-1]).tobytes())
-            self.stack.apply(self.tex, uniform_t, clip_u)
+            self.stack.apply(self.tex, audio_t, clip_u)
             last = self.stack.read()
         assert last is not None
         return last
@@ -301,17 +357,17 @@ class Session:
         assert last is not None
         return last
 
-    def export_still(self, t: float) -> Path:
+    def export_still(self, video_t: float, audio_t: float) -> Path:
         """Full-resolution JPEG + look yaml into out/stills/."""
         w, h = self.src_width, self.src_height
         if self.kind == "photo":
             frame = decode_frame(self.input, w, h, start=0.0)
             frames = [frame] * WARMUP_FRAMES
-            times = [self.song_offset + t] * WARMUP_FRAMES
-            clip_us = [self.clip_u_at(t)] * WARMUP_FRAMES
+            times = [audio_t] * WARMUP_FRAMES
+            clip_us = [self.clip_u_at(audio_t)] * WARMUP_FRAMES
         else:
             warmup_s = WARMUP_FRAMES / max(self.src_fps, 1.0)
-            start = max(0.0, t - warmup_s)
+            start = max(0.0, video_t - warmup_s)
             frames = list(
                 decode_frames(
                     self.input,
@@ -323,8 +379,11 @@ class Session:
                 )
             )
             if not frames:
-                frames = [decode_frame(self.input, w, h, start=t)]
-            times = [self.song_offset + start + i / max(self.src_fps, 1.0) for i in range(len(frames))]
+                frames = [decode_frame(self.input, w, h, start=video_t)]
+            times = [
+                audio_t + ((start + i / max(self.src_fps, 1.0)) - video_t)
+                for i in range(len(frames))
+            ]
             clip_us = [
                 self.clip_u_at(start + i / max(self.src_fps, 1.0)) for i in range(len(frames))
             ]
@@ -333,7 +392,7 @@ class Session:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         ov = self.params.overlay.mode
         geo = self.params.geo.mode
-        stem = f"{stamp}_t{t:.1f}_{ov}_{geo}_{w}x{h}"
+        stem = f"{stamp}_t{video_t:.1f}_{ov}_{geo}_{w}x{h}"
         img_path = STILLS_DIR / f"{stem}.jpg"
         yaml_path = STILLS_DIR / f"{stem}.yaml"
         write_jpeg(str(img_path), image, quality=2)
@@ -341,30 +400,29 @@ class Session:
         print(f"kept {img_path}", flush=True)
         return img_path
 
-    def render_preview(self, t: float, duration: float) -> None:
+    def render_preview(self, video_t: float, audio_t: float, duration: float) -> None:
         if self.kind == "photo":
-            raise ValueError("Loop 4s is video-only")
-        start = self.index_at(t)
+            raise ValueError("Loop is video-only")
+        start = self.index_at(video_t)
         n = max(1, int(duration * self.preview_fps))
         end = min(len(self.frames) - 1, start + n - 1)
         self.stack.reset()
-        audio_t = self.song_offset + self.video_start + start / self.preview_fps
         with Encoder(
             str(PREVIEW_PATH),
             self.width,
             self.height,
             self.preview_fps,
             audio=self.audio,
-            audio_offset=audio_t,
+            audio_offset=max(0.0, audio_t),
             crf=23,
         ) as enc:
             for i in range(start, end + 1):
-                video_t = self.video_start + i / self.preview_fps
+                at = self.video_start + i / self.preview_fps
                 self.tex.write(np.ascontiguousarray(self.frames[i][::-1]).tobytes())
                 self.stack.apply(
                     self.tex,
-                    self.song_offset + video_t,
-                    self.clip_u_at(video_t),
+                    audio_t + (at - video_t),
+                    self.clip_u_at(at),
                 )
                 enc.write(self.stack.read())
 
@@ -408,6 +466,8 @@ class Handler(BaseHTTPRequestHandler):
             assert SESSION is not None
             payload = {
                 "look": SESSION.params.to_dict(),
+                "look_path": SESSION.look_path.as_posix(),
+                "looks": list_looks(SESSION.look_path),
                 "schema": SLIDERS,
                 "sections": SECTION_ATTR,
                 "presets": {"grade": GRADE_PRESETS},
@@ -431,11 +491,15 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_json()
         if "look" in body:
             SESSION.params.replace(body["look"])
+        video_t = float(body.get("t", 0) or 0)
+        if "audio" in body and body["audio"] is not None:
+            audio_t = float(body["audio"] or 0)
+        else:
+            audio_t = SESSION.song_offset + video_t
         try:
             if path == "/api/frame":
-                t = float(body.get("t", 0))
-                SESSION.render_frame(t)
-                resolved = SESSION.resolved_at(t)
+                SESSION.render_frame(video_t, audio_t)
+                resolved = SESSION.resolved_at(video_t, audio_t)
                 self._send(
                     200,
                     FRAME_PATH.read_bytes(),
@@ -447,12 +511,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if path == "/api/resolve":
-                t = float(body.get("t", 0))
-                payload = {"ok": True, "resolved": SESSION.resolved_at(t)}
+                payload = {"ok": True, "resolved": SESSION.resolved_at(video_t, audio_t)}
                 self._send(200, json.dumps(payload).encode(), "application/json")
                 return
             if path == "/api/export":
-                path_out = SESSION.export_still(float(body.get("t", 0)))
+                path_out = SESSION.export_still(video_t, audio_t)
                 payload = {
                     "ok": True,
                     "path": str(path_out),
@@ -463,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(payload).encode(), "application/json")
                 return
             if path == "/api/preview":
-                SESSION.render_preview(float(body.get("t", 0)), float(body.get("duration", 4)))
+                SESSION.render_preview(video_t, audio_t, float(body.get("duration", 5)))
                 self._send(200, b'{"ok":true}', "application/json")
                 return
             if path == "/api/source":
@@ -478,7 +541,22 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/look":
                 SESSION.params.replace(body)
                 SESSION.params.save(SESSION.look_path)
-                self._send(200, b'{"ok":true}', "application/json")
+                payload = {"ok": True, "path": SESSION.look_path.as_posix()}
+                self._send(200, json.dumps(payload).encode(), "application/json")
+                return
+            if path == "/api/look/select":
+                src = body.get("path") or body.get("look")
+                if not src:
+                    self._send(400, b"missing path", "text/plain")
+                    return
+                SESSION.load_look(src)
+                payload = {
+                    "ok": True,
+                    "look": SESSION.params.to_dict(),
+                    "look_path": SESSION.look_path.as_posix(),
+                    "looks": list_looks(SESSION.look_path),
+                }
+                self._send(200, json.dumps(payload).encode(), "application/json")
                 return
         except Exception as exc:
             self._send(500, str(exc).encode(), "text/plain")

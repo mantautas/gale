@@ -63,6 +63,7 @@ SECTION_ATTR = {
     "CRT": "crt",
     "Slice": "slice",
     "Turb": "turb",
+    "Smoke": "smoke",
 }
 
 # Named Grade looks. `custom` means the parked sliders, not a recipe.
@@ -385,6 +386,19 @@ SLIDERS = [
     {"group": "Turb", "path": "turb.scale", "label": "Scale", "min": 0.4, "max": 4.0, "step": 0.01},
     {"group": "Turb", "path": "turb.speed", "label": "Speed", "min": 0.0, "max": 1.0, "step": 0.005},
     {"group": "Turb", "path": "turb.steps", "label": "Steps", "min": 12.0, "max": 96.0, "step": 1.0},
+    {"group": "Smoke", "open": False, "path": "smoke.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Smoke",
+        "path": "smoke.amount",
+        "label": "Amount",
+        "min": 0.0,
+        "max": 1.5,
+        "step": 0.01,
+        "bindable": True,
+    },
+    {"group": "Smoke", "path": "smoke.speed", "label": "Drift", "min": 0.0, "max": 1.0, "step": 0.01},
+    {"group": "Smoke", "path": "smoke.vorticity", "label": "Swirl", "min": 0.0, "max": 0.4, "step": 0.005},
+    {"group": "Smoke", "path": "smoke.fade", "label": "Fade", "min": 0.0, "max": 1.0, "step": 0.01},
 ]
 
 
@@ -535,6 +549,16 @@ class Turb:
 
 
 @dataclass
+class Smoke:
+    enabled: bool = False
+    mix: float = 0.65
+    amount: float = 0.85
+    speed: float = 0.4
+    vorticity: float = 0.11
+    fade: float = 0.22
+
+
+@dataclass
 class Binding:
     path: str
     automation: str = "none"
@@ -662,6 +686,7 @@ class Look:
     crt: Crt = field(default_factory=Crt)
     slice: Slice = field(default_factory=Slice)
     turb: Turb = field(default_factory=Turb)
+    smoke: Smoke = field(default_factory=Smoke)
     bindings: list[Binding] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -725,6 +750,7 @@ class Look:
             crt=_take(Crt, data.get("crt")),
             slice=_take(Slice, slice_data),
             turb=_take(Turb, data.get("turb")),
+            smoke=_take(Smoke, data.get("smoke")),
             bindings=bindings,
         )
 
@@ -752,4 +778,5 @@ class Look:
         self.crt = other.crt
         self.slice = other.slice
         self.turb = other.turb
+        self.smoke = other.smoke
         self.bindings = other.bindings
