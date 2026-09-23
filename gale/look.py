@@ -62,6 +62,7 @@ SECTION_ATTR = {
     "Halftone": "halftone",
     "CRT": "crt",
     "Slice": "slice",
+    "Turb": "turb",
 }
 
 # Named Grade looks. `custom` means the parked sliders, not a recipe.
@@ -371,6 +372,19 @@ SLIDERS = [
         "type": "enum",
         "options": SLICE_SPLIT_COLORS,
     },
+    {"group": "Turb", "open": False, "path": "turb.mix", "label": "Mix", "min": 0.0, "max": 1.0, "step": 0.01},
+    {
+        "group": "Turb",
+        "path": "turb.amount",
+        "label": "Amount",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.01,
+        "bindable": True,
+    },
+    {"group": "Turb", "path": "turb.scale", "label": "Scale", "min": 0.4, "max": 4.0, "step": 0.01},
+    {"group": "Turb", "path": "turb.speed", "label": "Speed", "min": 0.0, "max": 1.0, "step": 0.005},
+    {"group": "Turb", "path": "turb.steps", "label": "Steps", "min": 12.0, "max": 96.0, "step": 1.0},
 ]
 
 
@@ -511,6 +525,16 @@ class Slice:
 
 
 @dataclass
+class Turb:
+    enabled: bool = False
+    mix: float = 0.35
+    amount: float = 0.72
+    scale: float = 1.9
+    speed: float = 0.125
+    steps: float = 48.0
+
+
+@dataclass
 class Binding:
     path: str
     automation: str = "none"
@@ -637,6 +661,7 @@ class Look:
     halftone: Halftone = field(default_factory=Halftone)
     crt: Crt = field(default_factory=Crt)
     slice: Slice = field(default_factory=Slice)
+    turb: Turb = field(default_factory=Turb)
     bindings: list[Binding] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -699,6 +724,7 @@ class Look:
             halftone=_take(Halftone, data.get("halftone")),
             crt=_take(Crt, data.get("crt")),
             slice=_take(Slice, slice_data),
+            turb=_take(Turb, data.get("turb")),
             bindings=bindings,
         )
 
@@ -725,4 +751,5 @@ class Look:
         self.halftone = other.halftone
         self.crt = other.crt
         self.slice = other.slice
+        self.turb = other.turb
         self.bindings = other.bindings

@@ -32,6 +32,7 @@ BINDABLE_PATHS = (
     "crt.scanlines",
     "slice.amount",
     "slice.count",
+    "turb.amount",
 )
 
 
@@ -339,6 +340,17 @@ def build_look(
             "bleed": c.bleed,
         }
 
+    def turb(t: float) -> dict:
+        tb = params.turb
+        resolved = resolve_bindings(params, tl, t, float(clip_state["clip_u"]))
+        return {
+            "mix_amt": tb.mix,
+            "amount": resolved["turb.amount"],
+            "scale": tb.scale,
+            "speed": tb.speed,
+            "steps": tb.steps,
+        }
+
     return Stack(
         [
             (Simple(ctx, "grade", width, height, grade), lambda: params.grade.enabled),
@@ -349,6 +361,7 @@ def build_look(
             (Halation(ctx, width, height, glow), lambda: params.glow.enabled),
             (Simple(ctx, "overlay", width, height, overlay), lambda: params.overlay.enabled and params.overlay.mode != "none"),
             (Simple(ctx, "halftone", width, height, halftone), lambda: params.halftone.enabled),
+            (Simple(ctx, "turb", width, height, turb), lambda: params.turb.enabled),
             (Simple(ctx, "grain", width, height, grain), lambda: params.grain.enabled),
             (Simple(ctx, "crt", width, height, crt), lambda: params.crt.enabled),
         ],
