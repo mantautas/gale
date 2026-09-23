@@ -75,6 +75,19 @@
     margin: 0 0 3px;
   }
   .row.enum { grid-template-columns: 108px 1fr; }
+  .row.color { grid-template-columns: 108px auto 1fr; }
+  .row input[type=color] {
+    width: 36px; height: 24px; padding: 0; border: 1px solid var(--line);
+    background: var(--panel); cursor: pointer;
+  }
+  .row input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  .row input[type=color]::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .row .hex {
+    font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text);
+    background: transparent; border: 0; width: 100%; min-width: 0;
+    padding: 0; font: inherit;
+  }
+  .row .hex:focus { outline: none; color: var(--accent); }
   .row .label, .row > span:first-child {
     color: var(--mute); font-size: 11px; line-height: 1.2;
     overflow: hidden;
@@ -192,6 +205,7 @@ let mediaKind = "video";
 let allClips = [];
 let currentSource = "";
 let schema = [];
+let presets = { grade: {} };
 let sectionAttr = {
   Overlay: "overlay",
   Geo: "geo",
@@ -385,7 +399,43 @@ function groupHint(name) {
   if (!block) return "";
   if (typeof block.mode === "string") return block.mode;
   if (typeof block.axis === "string") return block.axis;
+  if (key === "grade" && typeof block.preset === "string" && block.preset !== "custom") {
+    return block.preset;
+  }
   return "";
+}
+
+function applyGradePreset(name) {
+  if (!look.grade) look.grade = {};
+  if (name === "custom") {
+    look.grade.preset = "custom";
+    return;
+  }
+  const recipe = (presets.grade || {})[name];
+  if (!recipe) {
+    look.grade.preset = "custom";
+    return;
+  }
+  look.grade.preset = name;
+  look.grade.contrast = recipe.contrast;
+  look.grade.saturation = recipe.saturation;
+  look.grade.crush = recipe.crush;
+  look.grade.shadow_tint = (recipe.shadow_tint || []).slice();
+  look.grade.highlight_tint = (recipe.highlight_tint || []).slice();
+  look.grade.enabled = true;
+}
+
+function markGradeCustom() {
+  if (!look.grade) return;
+  if (look.grade.preset && look.grade.preset !== "custom") {
+    look.grade.preset = "custom";
+    const sel = document.querySelector('[data-path="grade.preset"] select');
+    if (sel) sel.value = "custom";
+    const hint = document.querySelector('details.group .name')
+      && [...document.querySelectorAll("details.group")].find((d) => d.querySelector(".name")?.textContent === "Grade")
+        ?.querySelector("summary .hint");
+    if (hint) hint.remove();
+  }
 }
 
 function isAudioSlider(s) {
@@ -425,6 +475,63 @@ function labelCell(s) {
   const modes = modesText ? `<span class="affects">${modesText}</span>` : "";
   const title = s.modes ? `${s.label} (${s.modes})` : s.label;
   return `<span class="label" title="${title}">${noteIcon()}<span class="name">${s.label}</span>${modes}</span>`;
+}
+
+function rgbToHex(rgb) {
+  const arr = Array.isArray(rgb) ? rgb : [1, 1, 1];
+  const toByte = (v) => Math.max(0, Math.min(255, Math.round(Number(v) * 255)));
+  return "#" + [0, 1, 2].map((i) => toByte(arr[i] ?? 1).toString(16).padStart(2, "0")).join("");
+}
+
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [
+    ((n >> 16) & 255) / 255,
+    ((n >> 8) & 255) / 255,
+    (n & 255) / 255,
+  ];
+}
+
+function renderColorRow(s, val) {
+  const row = document.createElement("div");
+  row.className = "row color";
+  row.dataset.path = s.path;
+  const hex = rgbToHex(val);
+  row.innerHTML = `
+    ${labelCell(s)}
+    <input type="color" value="${hex}" title="Pick color" />
+    <input class="hex" type="text" value="${hex}" spellcheck="false" maxlength="7" />
+  `;
+  const picker = row.querySelector('input[type=color]');
+  const hexInput = row.querySelector(".hex");
+
+  function commit(nextHex) {
+    const rgb = hexToRgb(nextHex);
+    if (!rgb) {
+      hexInput.value = rgbToHex(getPath(look, s.path));
+      return;
+    }
+    const normalized = "#" + nextHex.replace(/^#/, "").toLowerCase();
+    picker.value = normalized;
+    hexInput.value = normalized;
+    setPath(look, s.path, rgb);
+    if (s.path.startsWith("grade.")) markGradeCustom();
+    showStill();
+    scheduleFrame();
+  }
+
+  picker.addEventListener("input", () => commit(picker.value));
+  hexInput.addEventListener("change", () => commit(hexInput.value));
+  hexInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      commit(hexInput.value);
+      hexInput.blur();
+    }
+  });
+  return row;
 }
 
 function renderSliders(schemaIn) {
@@ -490,6 +597,13 @@ function renderSliders(schemaIn) {
       row.innerHTML = `${labelCell(s)}<select>${opts}</select>`;
       row.querySelector("select").addEventListener("change", (ev) => {
         setPath(look, s.path, ev.target.value);
+        if (s.path === "grade.preset") {
+          applyGradePreset(ev.target.value);
+          renderSliders(schema);
+          showStill();
+          scheduleFrame();
+          return;
+        }
         if (s.path.endsWith(".mode") || s.path.endsWith(".axis")) {
           const sum = row.closest("details").querySelector("summary .hint")
             || (() => { const h = document.createElement("span"); h.className = "hint"; row.closest("details").querySelector("summary .name").after(h); return h; })();
@@ -526,6 +640,8 @@ function renderSliders(schemaIn) {
         scheduleFrame();
       });
       body.appendChild(row);
+    } else if (s.type === "color") {
+      body.appendChild(renderColorRow(s, val));
     } else if (s.bindable) {
       body.appendChild(renderBindableRow(s, val));
     } else {
@@ -545,6 +661,7 @@ function renderSliders(schemaIn) {
         const v = parseFloat(input.value);
         out.textContent = v.toFixed(3);
         setPath(look, s.path, v);
+        if (s.path.startsWith("grade.")) markGradeCustom();
         syncSoundtrackMarks();
         showStill();
         scheduleFrame();
@@ -787,6 +904,7 @@ timeInput.addEventListener("change", () => { showStill(); fetchFrame(); });
   const data = await res.json();
   look = data.look;
   if (data.sections) sectionAttr = data.sections;
+  if (data.presets) presets = data.presets;
   ensureBindings();
   applyClipMeta(data);
   renderSliders(data.schema);

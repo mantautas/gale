@@ -18,7 +18,7 @@ import numpy as np
 
 from gale.engine.decode import Encoder, decode_frame, decode_frames, probe, write_jpeg
 from gale.engine.gl import create_context
-from gale.look import SECTION_ATTR, SLIDERS, Look
+from gale.look import GRADE_PRESETS, SECTION_ATTR, SLIDERS, Look
 from gale.render import make_input_texture
 from gale.stack import build_look, resolve_bindings
 from gale.timeline import Timeline
@@ -410,6 +410,7 @@ class Handler(BaseHTTPRequestHandler):
                 "look": SESSION.params.to_dict(),
                 "schema": SLIDERS,
                 "sections": SECTION_ATTR,
+                "presets": {"grade": GRADE_PRESETS},
                 **SESSION.clip_state(),
             }
             self._send(200, json.dumps(payload).encode(), "application/json")

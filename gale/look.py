@@ -63,6 +63,32 @@ SECTION_ATTR = {
     "Slice": "slice",
 }
 
+# Named Grade looks. `custom` means the parked sliders, not a recipe.
+GRADE_PRESETS: dict[str, dict] = {
+    "grey grain": {
+        "contrast": 1.23,
+        "saturation": 0.1,
+        "crush": 1.21,
+        "shadow_tint": [0.86, 0.94, 1.05],
+        "highlight_tint": [1.06, 0.98, 0.9],
+    },
+    "default": {
+        "contrast": 1.12,
+        "saturation": 0.82,
+        "crush": 1.08,
+        "shadow_tint": [0.86, 0.94, 1.05],
+        "highlight_tint": [1.06, 0.98, 0.9],
+    },
+    "flat": {
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "crush": 1.0,
+        "shadow_tint": [1.0, 1.0, 1.0],
+        "highlight_tint": [1.0, 1.0, 1.0],
+    },
+}
+GRADE_PRESET_NAMES = ["custom", *GRADE_PRESETS.keys()]
+
 # Slider schema for the play UI. `path` is dotted against Look.to_dict().
 # `open` on the first row of a group is the default collapsed state.
 # `bindable` marks rows that get Auto/Mod controls.
@@ -205,9 +231,19 @@ SLIDERS = [
         "max": 1.0,
         "step": 0.01,
     },
-    {"group": "Grade", "open": False, "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
+    {
+        "group": "Grade",
+        "open": False,
+        "path": "grade.preset",
+        "label": "Preset",
+        "type": "enum",
+        "options": GRADE_PRESET_NAMES,
+    },
+    {"group": "Grade", "path": "grade.contrast", "label": "Contrast", "min": 0.7, "max": 1.8, "step": 0.01},
     {"group": "Grade", "path": "grade.saturation", "label": "Saturation", "min": 0.0, "max": 1.5, "step": 0.01},
     {"group": "Grade", "path": "grade.crush", "label": "Crush", "min": 0.8, "max": 1.4, "step": 0.01},
+    {"group": "Grade", "path": "grade.shadow_tint", "label": "Shadows", "type": "color"},
+    {"group": "Grade", "path": "grade.highlight_tint", "label": "Highlights", "type": "color"},
     {"group": "Flow", "open": False, "path": "flow.amount", "label": "Amount", "min": 0.0, "max": 0.08, "step": 0.001},
     {"group": "Flow", "path": "flow.amount_mod", "label": "Amount × energy", "min": 0.0, "max": 0.08, "step": 0.001, "audio": True},
     {"group": "Flow", "path": "flow.scale", "label": "Scale", "min": 0.4, "max": 8.0, "step": 0.1},
@@ -357,11 +393,25 @@ class Geo:
 @dataclass
 class Grade:
     enabled: bool = True
+    preset: str = "custom"
     contrast: float = 1.12
     saturation: float = 0.82
     crush: float = 1.08
     shadow_tint: list[float] = field(default_factory=lambda: [0.86, 0.94, 1.05])
     highlight_tint: list[float] = field(default_factory=lambda: [1.06, 0.98, 0.90])
+
+    def apply_preset(self, name: str) -> None:
+        """Copy a named preset onto this grade. Unknown / custom leaves values alone."""
+        if name not in GRADE_PRESETS:
+            self.preset = "custom"
+            return
+        data = GRADE_PRESETS[name]
+        self.preset = name
+        self.contrast = float(data["contrast"])
+        self.saturation = float(data["saturation"])
+        self.crush = float(data["crush"])
+        self.shadow_tint = list(data["shadow_tint"])
+        self.highlight_tint = list(data["highlight_tint"])
 
 
 @dataclass
@@ -601,6 +651,9 @@ class Look:
             slice_data["axis"] = "horizontal"
         if slice_data.get("colors") not in SLICE_SPLIT_INDEX:
             slice_data["colors"] = "rgb"
+        grade_data = dict(data.get("grade") or {})
+        if grade_data.get("preset") not in GRADE_PRESET_NAMES:
+            grade_data["preset"] = "custom"
         bindings: list[Binding] = []
         for raw in data.get("bindings") or []:
             if isinstance(raw, dict):
@@ -615,7 +668,7 @@ class Look:
         return cls(
             overlay=_take(Overlay, overlay_data),
             geo=_take(Geo, geo_data),
-            grade=_take(Grade, data.get("grade")),
+            grade=_take(Grade, grade_data),
             flow=_take(Flow, data.get("flow")),
             trails=_take(Trails, data.get("trails")),
             glow=_take(Glow, data.get("glow")),
